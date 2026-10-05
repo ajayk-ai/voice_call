@@ -1,14 +1,13 @@
-# Twilio + Deepgram Voice Agent (Python) - End-to-End VS Code Setup
+# FreJun + Deepgram Voice Agent (Python) - End-to-End VS Code Setup
 
-Phone call -> Twilio Media Stream -> FastAPI server (`main.py`) -> Deepgram Voice Agent (STT + LLM + TTS) -> back to the caller.
+Phone call -> FreJun (Teler) Media Stream -> FastAPI server (`main.py`) -> Deepgram Voice Agent (STT + LLM + TTS) -> back to the caller.
 
 ## 1. Prerequisites
 - Python 3.10+ (`python --version`)
 - VS Code with the **Python** extension
 - A GitHub account and a free Render account (https://render.com)
 - Deepgram API key (Console -> API Keys)
-- Twilio Account SID, Auth Token and a phone number (Console)
-- Trial Twilio: add your own mobile under Phone Numbers -> Verified Caller IDs
+- FreJun Teler API key and a FreJun virtual phone number (FreJun dashboard)
 
 ## 2. Open and set up in VS Code
 1. File -> Open Folder -> `voice-agent-python`
@@ -37,7 +36,7 @@ uvicorn main:app --port 5050 --reload
 Open http://localhost:5050 - you should see "Voice agent server is running".
 
 ## 4. Deploy to Render
-Twilio needs a public URL, so the server runs on Render (free plan).
+FreJun needs a public URL, so the server runs on Render (free plan).
 1. Push this repo to GitHub (`.env` is gitignored - never commit it).
 2. Render dashboard -> New -> Blueprint -> pick this repo. `render.yaml` sets the build/start commands.
 3. Enter `DEEPGRAM_API_KEY` when asked, then Apply.
@@ -48,15 +47,11 @@ Twilio needs a public URL, so the server runs on Render (free plan).
 ```
 python make_call.py
 ```
-Your phone rings. Answer (on trial, press a key if Twilio asks) and talk.
-The transcript prints in Terminal 1.
-
-## 6. Test inbound (optional)
-Twilio Console -> Phone Numbers -> your number -> Voice Configuration:
-"A call comes in" = Webhook, `https://<name>.onrender.com/incoming-call`, HTTP POST. Then dial your Twilio number.
+Your phone rings. Answer and talk.
+The transcript prints in the Render logs (or Terminal 1 when running locally).
 
 ## Troubleshooting
-- No ring / error 21219: your number isn't a Verified Caller ID (trial account).
+- No ring: check `TELER_API_KEY`, and that `FREJUN_PHONE_NUMBER` / `MY_PHONE_NUMBER` are in +91... format.
 - Call connects then drops: check `PUBLIC_URL` matches your Render URL and the service is awake (open it in a browser first).
 - Silence from the agent: check `DEEPGRAM_API_KEY` and look for "Deepgram error" in Terminal 1.
 - `additional_headers` error: run `pip install -U "websockets>=14"`.

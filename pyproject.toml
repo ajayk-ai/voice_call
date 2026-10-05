@@ -7,7 +7,7 @@ requires-python = ">=3.14"
 dependencies = [
     "fastapi==0.115.0",
     "python-dotenv==1.0.1",
-    "twilio==9.3.0",
+    "teler>=1.0.0",
     "uvicorn[standard]==0.30.6",
     "websockets>=14.0",
 ]

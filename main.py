@@ -2,13 +2,17 @@ import asyncio
 import base64
 import json
 import os
+import sys
 
 import websockets
 from dotenv import load_dotenv
 from fastapi import FastAPI, Request, WebSocket
-from fastapi.responses import PlainTextResponse, Response
+from fastapi.responses import JSONResponse, PlainTextResponse
 
 load_dotenv()
+
+# Print transcripts immediately (Render logs pipe stdout, which is otherwise block-buffered)
+sys.stdout.reconfigure(line_buffering=True)
 
 DEEPGRAM_API_KEY = os.getenv("DEEPGRAM_API_KEY")
 if not DEEPGRAM_API_KEY:
@@ -93,8 +97,8 @@ SWITCH_LANGUAGE_FUNCTION = {
 AGENT_SETTINGS = {
     "type": "Settings",
     "audio": {
-        "input": {"encoding": "mulaw", "sample_rate": 8000},
-        "output": {"encoding": "mulaw", "sample_rate": 8000, "container": "none"},
+        "input": {"encoding": "linear16", "sample_rate": 8000},
+        "output": {"encoding": "linear16", "sample_rate": 8000, "container": "none"},
     },
     "agent": {
         # nova-3 "multi" transcribes English and Hindi (including mixed Hinglish)
@@ -145,24 +149,36 @@ async def root():
     return PlainTextResponse("Voice agent server is running")
 
 
-@app.api_route("/incoming-call", methods=["GET", "POST"])
-async def incoming_call(request: Request):
-    """Twilio hits this when the call connects. Returns TwiML that starts a media stream."""
+@app.post("/flow")
+async def flow(request: Request):
+    """FreJun (Teler) calls this when the call is answered. Returns a stream action to our websocket."""
     host = request.headers.get("host")
-    twiml = f"""<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-  <Connect>
-    <Stream url="wss://{host}/media" />
-  </Connect>
-</Response>"""
-    return Response(content=twiml, media_type="text/xml")
+    return JSONResponse(
+        {
+            "action": "stream",
+            "ws_url": f"wss://{host}/media",
+            "sample_rate": "8k",
+            "chunk_size": 800,
+            "record": True,
+        }
+    )
+
+
+@app.post("/call-status")
+async def call_status(request: Request):
+    """FreJun status callback (ringing, answered, completed, ...)."""
+    print("Call status:", await request.json())
+    return {"ok": True}
+
+
+# Agent audio is buffered before sending to FreJun; 3200 bytes = 200 ms of 8 kHz PCM16.
+AUDIO_CHUNK_BYTES = 3200
 
 
 @app.websocket("/media")
-async def media(twilio_ws: WebSocket):
-    await twilio_ws.accept()
-    print("Twilio stream connected")
-    state = {"stream_sid": None}
+async def media(call_ws: WebSocket):
+    await call_ws.accept()
+    print("FreJun stream connected")
 
     async with websockets.connect(
         DEEPGRAM_URL, additional_headers={"Authorization": f"Token {DEEPGRAM_API_KEY}"}
@@ -170,42 +186,46 @@ async def media(twilio_ws: WebSocket):
         print("Deepgram agent connected")
         await dg_ws.send(json.dumps(AGENT_SETTINGS))
 
-        async def twilio_to_deepgram():
-            async for text in twilio_ws.iter_text():
+        async def call_to_deepgram():
+            async for text in call_ws.iter_text():
                 msg = json.loads(text)
-                event = msg.get("event")
-                if event == "start":
-                    state["stream_sid"] = msg["start"]["streamSid"]
-                    print("Call started:", state["stream_sid"])
-                elif event == "media":
-                    await dg_ws.send(base64.b64decode(msg["media"]["payload"]))
-                elif event == "stop":
-                    print("Call ended")
-                    break
+                if msg.get("type") == "audio":
+                    # caller audio: base64 PCM16 8 kHz
+                    await dg_ws.send(base64.b64decode(msg["data"]["audio_b64"]))
+                else:
+                    print("FreJun event:", msg.get("type"))
 
-        async def deepgram_to_twilio():
+        async def deepgram_to_call():
+            buffer = b""
+            chunk_id = 0
+
+            async def flush():
+                nonlocal buffer, chunk_id
+                if buffer:
+                    await call_ws.send_text(
+                        json.dumps(
+                            {"type": "audio", "audio_b64": base64.b64encode(buffer).decode(), "chunk_id": chunk_id}
+                        )
+                    )
+                    chunk_id += 1
+                    buffer = b""
+
             async for message in dg_ws:
                 if isinstance(message, bytes):
-                    # agent speech audio (mulaw 8k) -> Twilio
-                    if state["stream_sid"]:
-                        await twilio_ws.send_text(
-                            json.dumps(
-                                {
-                                    "event": "media",
-                                    "streamSid": state["stream_sid"],
-                                    "media": {"payload": base64.b64encode(message).decode()},
-                                }
-                            )
-                        )
+                    # agent speech audio (PCM16 8 kHz) -> FreJun
+                    buffer += message
+                    if len(buffer) >= AUDIO_CHUNK_BYTES:
+                        await flush()
                     continue
 
                 msg = json.loads(message)
                 mtype = msg.get("type")
-                if mtype == "UserStartedSpeaking" and state["stream_sid"]:
-                    # barge-in: clear audio already queued on Twilio
-                    await twilio_ws.send_text(
-                        json.dumps({"event": "clear", "streamSid": state["stream_sid"]})
-                    )
+                if mtype == "UserStartedSpeaking":
+                    # barge-in: drop pending audio and clear what FreJun has queued
+                    buffer = b""
+                    await call_ws.send_text(json.dumps({"type": "clear"}))
+                elif mtype == "AgentAudioDone":
+                    await flush()
                 elif mtype == "ConversationText":
                     print(f"{msg.get('role')}: {msg.get('content')}")
                 elif mtype == "FunctionCallRequest":
@@ -215,8 +235,8 @@ async def media(twilio_ws: WebSocket):
                     print("Deepgram error:", msg)
 
         tasks = [
-            asyncio.create_task(twilio_to_deepgram()),
-            asyncio.create_task(deepgram_to_twilio()),
+            asyncio.create_task(call_to_deepgram()),
+            asyncio.create_task(deepgram_to_call()),
         ]
         try:
             await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
