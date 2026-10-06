@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Voice Agent Test</title>
+<title>PO Voice Agent</title>
 <style>
   :root {
     --bg: #f4f6f8; --card: #fff; --fg: #1d242b; --muted: #5d6874; --line: #dde2e7;
@@ -37,15 +37,51 @@
   .user { background: var(--me); justify-self: end; }
   .assistant { background: var(--agent); justify-self: start; }
   .sys { color: var(--muted); font-size: .85rem; text-align: center; }
+  .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); }
+  .tab { background: none; color: var(--muted); border-radius: 8px 8px 0 0; padding: 10px 16px; border-bottom: 3px solid transparent; }
+  .tab[aria-selected="true"] { color: var(--fg); border-bottom-color: var(--accent); }
+  .panel[hidden] { display: none; }
+  .panel { display: grid; gap: 16px; }
+  form { display: grid; gap: 12px; }
+  label { display: grid; gap: 4px; font-weight: 600; font-size: .9rem; }
+  input { font: inherit; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--fg); width: 100%; }
+  input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  #callResult { margin: 0; }
+  #callResult.ok { color: var(--ok); font-weight: 600; }
+  #callResult.err { color: var(--stop); font-weight: 600; }
 </style>
 </head>
 <body>
 <main>
   <div>
-    <h1>Voice Agent Test</h1>
-    <p class="sub">Talk to the Bull Machines PO follow-up agent from your browser. No phone call is placed. Play the vendor and answer in English, Hindi or Tamil.</p>
+    <h1>PO Voice Agent</h1>
+    <p class="sub">Bull Machines PO follow-up agent. It speaks English, Hindi and Tamil.</p>
   </div>
 
+  <div class="tabs" role="tablist">
+    <button class="tab" role="tab" id="tab-phone" aria-controls="panel-phone" aria-selected="true">Normal call</button>
+    <button class="tab" role="tab" id="tab-browser" aria-controls="panel-browser" aria-selected="false">Voice agent</button>
+  </div>
+
+  <section class="panel" id="panel-phone" role="tabpanel" aria-labelledby="tab-phone">
+    <div class="card">
+      <p class="sub">The agent rings this phone number from your FreJun number and runs the PO follow-up call.</p>
+      <form id="callForm">
+        <label>Phone number
+          <input id="to" type="tel" placeholder="+919876543210" autocomplete="tel" required>
+        </label>
+        <label>Access code
+          <input id="password" type="password" autocomplete="current-password" placeholder="Only if the server has one set">
+        </label>
+        <div class="controls"><button id="callBtn" type="submit">Call this number</button></div>
+        <p id="callResult" role="status"></p>
+      </form>
+      <p class="tip">On Render's free plan the server sleeps when idle. If the first call fails, wait a few seconds and try again.</p>
+    </div>
+  </section>
+
+  <section class="panel" id="panel-browser" role="tabpanel" aria-labelledby="tab-browser" hidden>
+  <p class="sub">Talk to the agent with your microphone. No phone call is placed. You play the vendor.</p>
   <div class="card">
     <div class="controls">
       <button id="start">Start test call</button>
@@ -59,6 +95,7 @@
   <div class="card">
     <div id="log"><div class="sys">The transcript appears here.</div></div>
   </div>
+  </section>
 </main>
 
 <script>
@@ -182,6 +219,45 @@ function cleanup() {
 
 $("start").onclick = start;
 $("stop").onclick = () => ws?.close();
+
+// Tabs
+function showTab(name) {
+  for (const t of ["phone", "browser"]) {
+    $("tab-" + t).setAttribute("aria-selected", t === name);
+    $("panel-" + t).hidden = t !== name;
+  }
+  try { localStorage.setItem("tab", name); } catch (e) {}
+}
+$("tab-phone").onclick = () => showTab("phone");
+$("tab-browser").onclick = () => showTab("browser");
+if (location.pathname === "/test") showTab("browser");
+else { try { const t = localStorage.getItem("tab"); if (t) showTab(t); } catch (e) {} }
+
+// Normal call: ask the server to have the agent ring a phone
+try { $("to").value = localStorage.getItem("to") || ""; } catch (e) {}
+$("callForm").onsubmit = async (e) => {
+  e.preventDefault();
+  const result = $("callResult");
+  $("callBtn").disabled = true;
+  result.className = ""; result.textContent = "Placing call…";
+  try {
+    const res = await fetch("/api/call", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ to: $("to").value, password: $("password").value }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok) {
+      result.className = "ok"; result.textContent = "Calling " + data.to + ". The phone should ring shortly.";
+      try { localStorage.setItem("to", data.to); } catch (e) {}
+    } else {
+      result.className = "err"; result.textContent = data.error || "Call failed (" + res.status + ").";
+    }
+  } catch (err) {
+    result.className = "err"; result.textContent = "Could not reach the server.";
+  }
+  $("callBtn").disabled = false;
+};
 </script>
 </body>
 </html>

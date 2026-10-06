@@ -2,6 +2,7 @@ import asyncio
 import base64
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -16,6 +17,8 @@ from fastapi import FastAPI, Request, WebSocket
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from google import genai
 from google.genai import types
+from teler import AsyncClient as AsyncTelerClient
+from teler.exceptions import TelerException
 
 load_dotenv()
 
@@ -28,6 +31,11 @@ if not GEMINI_API_KEY:
 
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-live")
 GEMINI_VOICE = os.getenv("GEMINI_VOICE", "Achird")
+
+TELER_API_KEY = os.getenv("TELER_API_KEY")
+FREJUN_PHONE_NUMBER = os.getenv("FREJUN_PHONE_NUMBER")
+# Optional: if set, the web page must send this code before it can place a phone call
+APP_PASSWORD = os.getenv("APP_PASSWORD")
 
 PO_FOLLOWUP_PROMPT = """\
 You are the Bull Machines Supply Chain (SCM) assistant, calling a vendor about overdue purchase orders.
@@ -134,9 +142,56 @@ class Downsampler:
 app = FastAPI()
 
 
+INDEX_PAGE = (Path(__file__).parent / "index.html").read_text(encoding="utf-8")
+
+
 @app.get("/")
-async def root():
+@app.get("/test")
+async def index():
+    """Web page: place a phone call with the agent, or talk to it in the browser."""
+    return HTMLResponse(INDEX_PAGE)
+
+
+@app.get("/health")
+async def health():
     return PlainTextResponse("Voice agent server is running")
+
+
+def public_url(request: Request) -> str:
+    """Base URL FreJun uses to reach this server. Render sets RENDER_EXTERNAL_URL automatically."""
+    url = os.getenv("PUBLIC_URL") or os.getenv("RENDER_EXTERNAL_URL") or f"https://{request.headers.get('host')}"
+    return url.rstrip("/")
+
+
+@app.post("/api/call")
+async def place_call(request: Request):
+    """Web page 'Normal call' button: the agent rings the given phone number via FreJun."""
+    body = await request.json()
+    if APP_PASSWORD and body.get("password") != APP_PASSWORD:
+        return JSONResponse({"error": "Wrong access code."}, status_code=401)
+
+    to_number = re.sub(r"[\s()-]", "", str(body.get("to", "")))
+    if not re.fullmatch(r"\+\d{8,15}", to_number):
+        return JSONResponse({"error": "Enter the number with country code, e.g. +919876543210."}, status_code=400)
+
+    if not (TELER_API_KEY and FREJUN_PHONE_NUMBER):
+        return JSONResponse({"error": "TELER_API_KEY / FREJUN_PHONE_NUMBER are not set on the server."}, status_code=500)
+
+    base = public_url(request)
+    try:
+        async with AsyncTelerClient(api_key=TELER_API_KEY) as client:
+            call = await client.voice.calls.create(
+                from_number=FREJUN_PHONE_NUMBER,
+                to_number=to_number,
+                flow_url=f"{base}/flow",
+                status_callback_url=f"{base}/call-status",
+                record=True,
+            )
+    except TelerException as e:
+        print("Call failed:", repr(e), e.details)
+        return JSONResponse({"error": f"FreJun error: {e.message}"}, status_code=502)
+    print("Calling", to_number, "call id:", call.id)
+    return {"ok": True, "call_id": call.id, "to": to_number}
 
 
 @app.post("/flow")
@@ -152,15 +207,6 @@ async def flow(request: Request):
             "record": True,
         }
     )
-
-
-TEST_PAGE = (Path(__file__).parent / "test_page.html").read_text(encoding="utf-8")
-
-
-@app.get("/test")
-async def test_page():
-    """Browser page to talk to the agent with your mic - no phone call needed."""
-    return HTMLResponse(TEST_PAGE)
 
 
 @app.websocket("/test-ws")

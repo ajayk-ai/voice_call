@@ -39,24 +39,29 @@ Open http://localhost:5050 - you should see "Voice agent server is running".
 FreJun needs a public URL, so the server runs on Render (free plan).
 1. Push this repo to GitHub (`.env` is gitignored - never commit it).
 2. Render dashboard -> New -> Blueprint -> pick this repo. `render.yaml` sets the build/start commands.
-3. Enter `GEMINI_API_KEY` when asked, then Apply.
-4. Copy the `https://<name>.onrender.com` URL into `PUBLIC_URL` in your local `.env` (no trailing slash).
-5. Free services sleep when idle - open the URL in a browser to wake it before each call.
+3. Fill in the env vars when asked, then Apply:
+   - `GEMINI_API_KEY`
+   - `TELER_API_KEY`
+   - `FREJUN_PHONE_NUMBER` (+91... format)
+   - `APP_PASSWORD`: an access code the web page asks for before placing a call. Set one. Otherwise anyone
+     with the URL can make calls on your FreJun account.
+4. Free services sleep when idle. Open the URL first to wake the server.
 
-## 5. Place the test call (Terminal 3, venv activated)
-```
-python make_call.py
-```
-Your phone rings. Answer and talk.
-The transcript prints in the Render logs (or Terminal 1 when running locally).
+## 5. Use the web page
+Open `https://<name>.onrender.com`. It has two tabs:
+- **Normal call**: enter a phone number (with country code, e.g. `+919876543210`) and the access code, then click
+  **Call this number**. The phone rings from your FreJun number and the voice agent handles the call.
+- **Voice agent**: click **Start test call**, allow the microphone and talk to the agent in the browser
+  (no phone call). Use headphones so the agent doesn't hear itself.
 
-## Test in the browser (no phone call)
-Open `http://localhost:5050/test` (local) or `https://<name>.onrender.com/test`, click **Start test call**,
-allow the microphone and talk to the agent. Use headphones so the agent doesn't hear itself.
+Transcripts print in the Render logs (service -> Logs).
+
+You can still place a call from your machine with `python make_call.py` (uses `MY_PHONE_NUMBER` and `PUBLIC_URL` from `.env`).
 
 ## Troubleshooting
 - No ring: check `TELER_API_KEY`, and that `FREJUN_PHONE_NUMBER` / `MY_PHONE_NUMBER` are in +91... format.
-- Call connects then drops: check `PUBLIC_URL` matches your Render URL and the service is awake (open it in a browser first).
+- Call connects then drops: make sure the service is awake (open it in a browser first). On Render the server uses `RENDER_EXTERNAL_URL` automatically. Set `PUBLIC_URL` only if you use a custom domain.
+- "Wrong access code": the code must match `APP_PASSWORD` on Render.
 - Silence from the agent: check `GEMINI_API_KEY` and look for "Stream error" in the logs.
 - Agent logs/transcripts on Render: open the service -> Logs.
 
