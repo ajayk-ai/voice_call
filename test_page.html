@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Voice Agent Test</title>
+<style>
+  :root {
+    --bg: #f4f6f8; --card: #fff; --fg: #1d242b; --muted: #5d6874; --line: #dde2e7;
+    --accent: #1f6fb2; --accent-fg: #fff; --stop: #c2412d;
+    --me: #e6f0fa; --agent: #f1f3f5; --ok: #2f7d4f;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #14181c; --card: #1c2227; --fg: #e6eaee; --muted: #9aa5b0; --line: #2e363e;
+      --accent: #4a9be0; --accent-fg: #0d1216; --stop: #e0664f; --me: #1d3246; --agent: #252c33; --ok: #6cc893;
+      color-scheme: dark; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.5 "Segoe UI", system-ui, sans-serif; padding: 24px 16px; }
+  main { max-width: 720px; margin: 0 auto; display: grid; gap: 16px; }
+  h1 { margin: 0; font-size: 1.5rem; }
+  .sub { color: var(--muted); margin: 0; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 16px; display: grid; gap: 12px; }
+  .controls { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+  button { font: 600 1rem/1 inherit; padding: 12px 20px; border: 0; border-radius: 8px; cursor: pointer; background: var(--accent); color: var(--accent-fg); }
+  button.stop { background: var(--stop); }
+  button:disabled { opacity: .5; cursor: default; }
+  button:focus-visible { outline: 3px solid var(--fg); outline-offset: 2px; }
+  #status { color: var(--muted); }
+  #status.live { color: var(--ok); font-weight: 600; }
+  .meter { flex: 1 1 120px; height: 8px; background: var(--line); border-radius: 4px; overflow: hidden; min-width: 80px; }
+  .meter i { display: block; height: 100%; width: 0; background: var(--ok); transition: width .08s; }
+  .tip { font-size: .88rem; color: var(--muted); margin: 0; }
+  #log { display: grid; gap: 8px; min-height: 220px; max-height: 55vh; overflow-y: auto; align-content: start; }
+  .msg { padding: 8px 12px; border-radius: 8px; max-width: 85%; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .msg b { display: block; font-size: .75rem; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+  .user { background: var(--me); justify-self: end; }
+  .assistant { background: var(--agent); justify-self: start; }
+  .sys { color: var(--muted); font-size: .85rem; text-align: center; }
+</style>
+</head>
+<body>
+<main>
+  <div>
+    <h1>Voice Agent Test</h1>
+    <p class="sub">Talk to the Bull Machines PO follow-up agent from your browser. No phone call is placed. Play the vendor and answer in English, Hindi or Tamil.</p>
+  </div>
+
+  <div class="card">
+    <div class="controls">
+      <button id="start">Start test call</button>
+      <button id="stop" class="stop" disabled>End call</button>
+      <span id="status">Not connected</span>
+      <div class="meter" title="Your mic level"><i id="level"></i></div>
+    </div>
+    <p class="tip">Use headphones. Without them the agent hears itself through your speakers and keeps interrupting itself.</p>
+  </div>
+
+  <div class="card">
+    <div id="log"><div class="sys">The transcript appears here.</div></div>
+  </div>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let ws, micCtx, micStream, playCtx, nextPlayTime = 0, playing = [];
+let current = { role: null, el: null };
+
+function setStatus(text, live) { $("status").textContent = text; $("status").className = live ? "live" : ""; }
+
+function addLine(role, text) {
+  const log = $("log");
+  if (log.firstElementChild?.classList.contains("sys") && log.children.length === 1) log.innerHTML = "";
+  if (current.role !== role || !current.el) {
+    const div = document.createElement("div");
+    div.className = "msg " + role;
+    div.innerHTML = "<b>" + (role === "user" ? "You (vendor)" : "Agent") + "</b><span></span>";
+    log.appendChild(div);
+    current = { role, el: div.querySelector("span") };
+  }
+  current.el.textContent += text;
+  log.scrollTop = log.scrollHeight;
+}
+
+function sysLine(text) {
+  const div = document.createElement("div");
+  div.className = "sys"; div.textContent = text;
+  $("log").appendChild(div); current = { role: null, el: null };
+}
+
+// Agent audio: 24 kHz PCM16 chunks, played back to back
+function playChunk(buf) {
+  const pcm = new Int16Array(buf);
+  const audio = playCtx.createBuffer(1, pcm.length, 24000);
+  const ch = audio.getChannelData(0);
+  for (let i = 0; i < pcm.length; i++) ch[i] = pcm[i] / 32768;
+  const src = playCtx.createBufferSource();
+  src.buffer = audio; src.connect(playCtx.destination);
+  const t = Math.max(playCtx.currentTime + 0.05, nextPlayTime);
+  src.start(t); nextPlayTime = t + audio.duration;
+  playing.push(src);
+  src.onended = () => { playing = playing.filter((s) => s !== src); };
+}
+
+function stopPlayback() {
+  playing.forEach((s) => { try { s.stop(); } catch (e) {} });
+  playing = []; nextPlayTime = 0;
+}
+
+// Mic capture: 16 kHz mono, sent as PCM16 every ~100 ms
+const workletCode = `
+class Mic extends AudioWorkletProcessor {
+  constructor() { super(); this.buf = []; }
+  process(inputs) {
+    const ch = inputs[0][0];
+    if (ch) {
+      this.buf.push(...ch);
+      if (this.buf.length >= 1600) {
+        const pcm = new Int16Array(this.buf.length);
+        let peak = 0;
+        for (let i = 0; i < this.buf.length; i++) {
+          const s = Math.max(-1, Math.min(1, this.buf[i]));
+          pcm[i] = s * 32767; peak = Math.max(peak, Math.abs(s));
+        }
+        this.port.postMessage({ pcm: pcm.buffer, peak }, [pcm.buffer]);
+        this.buf = [];
+      }
+    }
+    return true;
+  }
+}
+registerProcessor("mic", Mic);`;
+
+async function start() {
+  $("start").disabled = true;
+  setStatus("Starting microphone…");
+  try {
+    micStream = await navigator.mediaDevices.getUserMedia({
+      audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+    });
+  } catch (e) {
+    setStatus("Microphone blocked. Allow mic access in the browser and try again.");
+    $("start").disabled = false; return;
+  }
+  micCtx = new AudioContext({ sampleRate: 16000 });
+  playCtx = new AudioContext({ sampleRate: 24000 });
+  const url = URL.createObjectURL(new Blob([workletCode], { type: "application/javascript" }));
+  await micCtx.audioWorklet.addModule(url);
+  const node = new AudioWorkletNode(micCtx, "mic");
+  micCtx.createMediaStreamSource(micStream).connect(node);
+
+  setStatus("Connecting to agent…");
+  ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/test-ws");
+  ws.binaryType = "arraybuffer";
+  ws.onopen = () => {
+    node.port.onmessage = (e) => {
+      $("level").style.width = Math.min(100, e.data.peak * 140) + "%";
+      if (ws.readyState === 1) ws.send(e.data.pcm);
+    };
+  };
+  ws.onmessage = (e) => {
+    if (typeof e.data !== "string") { playChunk(e.data); return; }
+    const m = JSON.parse(e.data);
+    if (m.type === "ready") { setStatus("Live: speak now", true); sysLine("Call connected. The agent will greet you."); $("stop").disabled = false; }
+    else if (m.type === "transcript") addLine(m.role, m.text);
+    else if (m.type === "turn_complete") current = { role: null, el: null };
+    else if (m.type === "clear") stopPlayback();
+    else if (m.type === "error") { sysLine("Error: " + m.text); }
+  };
+  ws.onclose = () => { cleanup(); setStatus("Call ended"); sysLine("Call ended."); };
+  ws.onerror = () => setStatus("Could not reach the agent server.");
+}
+
+function cleanup() {
+  stopPlayback();
+  micStream?.getTracks().forEach((t) => t.stop());
+  micCtx?.close(); playCtx?.close();
+  micCtx = playCtx = micStream = null;
+  $("level").style.width = "0";
+  $("start").disabled = false; $("stop").disabled = true;
+}
+
+$("start").onclick = start;
+$("stop").onclick = () => ws?.close();
+</script>
+</body>
+</html>

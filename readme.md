@@ -1,12 +1,12 @@
-# FreJun + Deepgram Voice Agent (Python) - End-to-End VS Code Setup
+# FreJun + Gemini Live Voice Agent (Python) - End-to-End VS Code Setup
 
-Phone call -> FreJun (Teler) Media Stream -> FastAPI server (`main.py`) -> Deepgram Voice Agent (STT + LLM + TTS) -> back to the caller.
+Phone call -> FreJun (Teler) Media Stream -> FastAPI server (`main.py`) -> Gemini Live (native audio: listens, thinks, speaks in English / Hindi / Tamil) -> back to the caller.
 
 ## 1. Prerequisites
 - Python 3.10+ (`python --version`)
 - VS Code with the **Python** extension
 - A GitHub account and a free Render account (https://render.com)
-- Deepgram API key (Console -> API Keys)
+- Gemini API key (Google AI Studio -> Get API key)
 - FreJun Teler API key and a FreJun virtual phone number (FreJun dashboard)
 
 ## 2. Open and set up in VS Code
@@ -39,7 +39,7 @@ Open http://localhost:5050 - you should see "Voice agent server is running".
 FreJun needs a public URL, so the server runs on Render (free plan).
 1. Push this repo to GitHub (`.env` is gitignored - never commit it).
 2. Render dashboard -> New -> Blueprint -> pick this repo. `render.yaml` sets the build/start commands.
-3. Enter `DEEPGRAM_API_KEY` when asked, then Apply.
+3. Enter `GEMINI_API_KEY` when asked, then Apply.
 4. Copy the `https://<name>.onrender.com` URL into `PUBLIC_URL` in your local `.env` (no trailing slash).
 5. Free services sleep when idle - open the URL in a browser to wake it before each call.
 
@@ -50,12 +50,15 @@ python make_call.py
 Your phone rings. Answer and talk.
 The transcript prints in the Render logs (or Terminal 1 when running locally).
 
+## Test in the browser (no phone call)
+Open `http://localhost:5050/test` (local) or `https://<name>.onrender.com/test`, click **Start test call**,
+allow the microphone and talk to the agent. Use headphones so the agent doesn't hear itself.
+
 ## Troubleshooting
 - No ring: check `TELER_API_KEY`, and that `FREJUN_PHONE_NUMBER` / `MY_PHONE_NUMBER` are in +91... format.
 - Call connects then drops: check `PUBLIC_URL` matches your Render URL and the service is awake (open it in a browser first).
-- Silence from the agent: check `DEEPGRAM_API_KEY` and look for "Deepgram error" in Terminal 1.
-- `additional_headers` error: run `pip install -U "websockets>=14"`.
+- Silence from the agent: check `GEMINI_API_KEY` and look for "Stream error" in the logs.
 - Agent logs/transcripts on Render: open the service -> Logs.
 
 ## Customize
-Edit `AGENT_SETTINGS` in `main.py` to change the prompt, greeting, voice (`speak.provider.model`) or LLM (`think.provider`).
+Edit `PO_FOLLOWUP_PROMPT` and `GREETING_TRIGGER` in `main.py` to change what the agent says. Set `GEMINI_MODEL` or `GEMINI_VOICE` env vars to change the model or voice.
