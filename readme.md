@@ -43,8 +43,10 @@ FreJun needs a public URL, so the server runs on Render (free plan).
    - `GEMINI_API_KEY`
    - `TELER_API_KEY`
    - `FREJUN_PHONE_NUMBER` (+91... format)
-   - `APP_PASSWORD`: an access code the web page asks for before placing a call. Set one. Otherwise anyone
-     with the URL can make calls on your FreJun account.
+   - `APP_PASSWORD`: the access code the web page asks for, for both tabs. Set one. Otherwise anyone
+     with the URL can make calls on your FreJun account and use your Gemini credits.
+   - Optional: `MAX_SESSION_SECONDS` (default 900, hard stop per call), `CALL_RATE_LIMIT` / `CALL_RATE_WINDOW`
+     (default 5 calls per 600 s per visitor), `LOG_LEVEL` (default `INFO`).
 4. Free services sleep when idle. Open the URL first to wake the server.
 
 ## 5. Use the web page

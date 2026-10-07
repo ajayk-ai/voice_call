@@ -58,6 +58,10 @@
     <p class="sub">Bull Machines PO follow-up agent. It speaks English, Hindi and Tamil.</p>
   </div>
 
+  <label>Access code
+    <input id="password" type="password" autocomplete="current-password" placeholder="Needed for both tabs">
+  </label>
+
   <div class="tabs" role="tablist">
     <button class="tab" role="tab" id="tab-phone" aria-controls="panel-phone" aria-selected="true">Normal call</button>
     <button class="tab" role="tab" id="tab-browser" aria-controls="panel-browser" aria-selected="false">Voice agent</button>
@@ -69,9 +73,6 @@
       <form id="callForm">
         <label>Phone number
           <input id="to" type="tel" placeholder="+919876543210" autocomplete="tel" required>
-        </label>
-        <label>Access code
-          <input id="password" type="password" autocomplete="current-password" placeholder="Only if the server has one set">
         </label>
         <div class="controls"><button id="callBtn" type="submit">Call this number</button></div>
         <p id="callResult" role="status"></p>
@@ -190,6 +191,7 @@ async function start() {
   ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/test-ws");
   ws.binaryType = "arraybuffer";
   ws.onopen = () => {
+    ws.send(JSON.stringify({ type: "auth", code: $("password").value }));
     node.port.onmessage = (e) => {
       $("level").style.width = Math.min(100, e.data.peak * 140) + "%";
       if (ws.readyState === 1) ws.send(e.data.pcm);
@@ -204,7 +206,11 @@ async function start() {
     else if (m.type === "clear") stopPlayback();
     else if (m.type === "error") { sysLine("Error: " + m.text); }
   };
-  ws.onclose = () => { cleanup(); setStatus("Call ended"); sysLine("Call ended."); };
+  ws.onclose = (e) => {
+    cleanup();
+    if (e.code === 4401) { setStatus("Wrong access code. Enter it above and try again."); return; }
+    setStatus("Call ended"); sysLine("Call ended.");
+  };
   ws.onerror = () => setStatus("Could not reach the agent server.");
 }
 
