@@ -62,7 +62,7 @@ You can still place a call from your machine with `python make_call.py` (uses `M
 
 ## Troubleshooting
 - No ring: check `TELER_API_KEY`, and that `FREJUN_PHONE_NUMBER` / `MY_PHONE_NUMBER` are in +91... format.
-- Call connects then drops: make sure the service is awake (open it in a browser first). On Render the server uses `RENDER_EXTERNAL_URL` automatically. Set `PUBLIC_URL` only if you use a custom domain.
+- Call connects then drops ("Failed to fetch call flow" in FreJun call logs): the server was asleep or FreJun was given a wrong URL. On Render the server always uses its own `RENDER_EXTERNAL_URL`; do not set `PUBLIC_URL` there.
 - "Wrong access code": the code must match `APP_PASSWORD` on Render.
 - Silence from the agent: check `GEMINI_API_KEY` and look for "Stream error" in the logs.
 - Agent logs/transcripts on Render: open the service -> Logs.

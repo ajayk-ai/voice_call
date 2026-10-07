@@ -234,8 +234,11 @@ call_limiter = RateLimiter(CALL_RATE_LIMIT, CALL_RATE_WINDOW)
 
 
 def public_url(request: Request) -> str:
-    """Base URL FreJun uses to reach this server. Render sets RENDER_EXTERNAL_URL automatically."""
-    url = os.getenv("PUBLIC_URL") or os.getenv("RENDER_EXTERNAL_URL") or f"https://{request.headers.get('host')}"
+    """Base URL FreJun uses to reach this server.
+
+    On Render, RENDER_EXTERNAL_URL is always the live service URL, so it wins over PUBLIC_URL
+    (a stale PUBLIC_URL pointing at a deleted service makes FreJun hang up on answer)."""
+    url = os.getenv("RENDER_EXTERNAL_URL") or os.getenv("PUBLIC_URL") or f"https://{request.headers.get('host')}"
     return url.rstrip("/")
 
 
@@ -350,7 +353,7 @@ async def place_call(request: Request):
         log.error("Could not reach FreJun: %r", e)
         return error("Could not reach FreJun. Please try again.", 502)
 
-    log.info("Calling %s, call id %s", mask_number(to_number), call.id)
+    log.info("Calling %s, call id %s, flow %s/flow", mask_number(to_number), call.id, base)
     return {"ok": True, "call_id": call.id, "to": to_number}
 
 
