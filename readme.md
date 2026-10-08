@@ -1,6 +1,28 @@
 # FreJun + Gemini Live Voice Agent (Python) - End-to-End VS Code Setup
 
-Phone call -> FreJun (Teler) Media Stream -> FastAPI server (`main.py`) -> Gemini Live (native audio: listens, thinks, speaks in English / Hindi / Tamil) -> back to the caller.
+Phone call -> FreJun (Teler) Media Stream -> FastAPI server (`voice_agent/`) -> Gemini Live (native audio: listens, thinks, speaks in English / Hindi / Tamil) -> back to the caller.
+
+## Project layout
+```
+main.py                  # entry point for `uvicorn main:app` (Render start command); imports voice_agent.app
+voice_agent/             # the voice agent web service
+  app.py                 #   FastAPI app: wires routers, global error handler
+  config.py              #   settings from .env / Render env vars, logging
+  prompts.py             #   what the agent says (system prompt, greeting)
+  gemini.py              #   Gemini Live client and session config
+  audio.py               #   24 kHz -> 8 kHz downsampler for the phone line
+  security.py            #   access code, rate limit, number masking
+  bridge.py              #   shared websocket bridge helpers, public URL
+  routes/
+    pages.py             #   GET /, /test, /health
+    calls.py             #   POST /api/call (place call), /flow, /call-status (FreJun webhooks)
+    media.py             #   WS /media  (FreJun phone audio <-> Gemini)
+    browser.py           #   WS /test-ws (browser mic <-> Gemini)
+  static/index.html      #   the web page
+po_sync/                 # local-only: live Google Sheet -> PostgreSQL mirror (python -m po_sync)
+scripts/make_call.py     # place a test call from your machine
+tests/                   # pytest: `.venv/Scripts/python -m pytest`
+```
 
 ## 1. Prerequisites
 - Python 3.10+ (`python --version`)
@@ -10,7 +32,7 @@ Phone call -> FreJun (Teler) Media Stream -> FastAPI server (`main.py`) -> Gemin
 - FreJun Teler API key and a FreJun virtual phone number (FreJun dashboard)
 
 ## 2. Open and set up in VS Code
-1. File -> Open Folder -> `voice-agent-python`
+1. File -> Open Folder -> `voice_call`
 2. Open a terminal (Ctrl+`) and create a virtual environment:
    ```
    python -m venv .venv
@@ -58,7 +80,7 @@ Open `https://<name>.onrender.com`. It has two tabs:
 
 Transcripts print in the Render logs (service -> Logs).
 
-You can still place a call from your machine with `python make_call.py` (uses `MY_PHONE_NUMBER` and `PUBLIC_URL` from `.env`).
+You can still place a call from your machine with `python scripts/make_call.py` (uses `MY_PHONE_NUMBER` and `PUBLIC_URL` from `.env`).
 
 ## Troubleshooting
 - No ring: check `TELER_API_KEY`, and that `FREJUN_PHONE_NUMBER` / `MY_PHONE_NUMBER` are in +91... format.
@@ -68,4 +90,22 @@ You can still place a call from your machine with `python make_call.py` (uses `M
 - Agent logs/transcripts on Render: open the service -> Logs.
 
 ## Customize
-Edit `PO_FOLLOWUP_PROMPT` and `GREETING_TRIGGER` in `main.py` to change what the agent says. Set `GEMINI_MODEL` or `GEMINI_VOICE` env vars to change the model or voice.
+Edit `PO_FOLLOWUP_PROMPT` and `GREETING_TRIGGER` in `voice_agent/prompts.py` to change what the agent says. Set `GEMINI_MODEL` or `GEMINI_VOICE` env vars to change the model or voice.
+## PO sheet live sync (local)
+`po_sync/` mirrors every tab of the "CE - Pending PO" Google Sheet into its own PostgreSQL database
+(`pending_po`), separate from other projects. It authenticates with a GCP service account using
+domain-wide delegation (impersonating `GOOGLE_DELEGATED_USER`).
+
+1. Put the service account key at `service.json` in this folder (gitignored).
+2. Fill the `GOOGLE_*` and `PO_*` values in `.env` (see `.env.example`).
+3. Install: `uv pip install --python .venv/Scripts/python.exe -r po_sync/requirements.txt`
+4. Run once to test: `.venv/Scripts/python -m po_sync --once`
+5. Keep it live: `.venv/Scripts/python -m po_sync` (re-syncs every `PO_SYNC_INTERVAL_SECONDS`, default 60)
+
+What you get:
+- One table per tab in the `sheets` schema, e.g. `sheets.master`, `sheets.phone_master`, `sheets.vendor_replies`.
+  Column names are cleaned-up headers (`Mat. Desc` -> `mat_desc`); the original header is the column comment.
+  All values are TEXT, plus `sheet_row` (the row number in the sheet).
+- `public.sync_state`: per tab, row count, last sync time and last error.
+- Only changed tabs are rewritten, each in one transaction, so queries never see a half-written tab.
+  Tabs deleted from the sheet are dropped from the mirror.

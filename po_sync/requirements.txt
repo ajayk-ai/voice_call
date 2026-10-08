@@ -1,0 +1,6 @@
+# Local-only: the Render web service doesn't need these
+gspread>=6.1
+google-auth>=2.32
+psycopg[binary]>=3.2
+python-dotenv>=1.0
+truststore>=0.10
