@@ -16,14 +16,7 @@ import re
 import time
 from datetime import datetime, timezone
 
-import truststore
-
-# Use the OS certificate store, so HTTPS works behind corporate SSL inspection (e.g. Sophos)
-truststore.inject_into_ssl()
-
-from dotenv import load_dotenv
-
-load_dotenv()
+from common import env  # noqa: F401 - loads .env before LANGSMITH_* is read
 
 log = logging.getLogger("monitoring.tracing")
 

@@ -1,39 +1,19 @@
-"""Google Sheets access with a service account + domain-wide delegation.
+"""Google Sheets access with a service account + domain-wide delegation (credentials: common.google_auth)."""
 
-Credentials come from GOOGLE_SERVICE_ACCOUNT_JSON (the key file's contents, for servers like Render)
-or GOOGLE_SERVICE_ACCOUNT_FILE (a path, for local use), impersonating GOOGLE_DELEGATED_USER."""
-
-import json
 import logging
-import os
 
 import gspread
-from google.oauth2.service_account import Credentials
 from gspread.utils import ValueInputOption, rowcol_to_a1
+
+from common.google_auth import GoogleNotConfigured, delegated_credentials
 
 log = logging.getLogger("po_followup.sheets")
 
 # Must match a scope authorized for this client in Workspace Admin > Domain-wide delegation
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 
-
-class SheetsNotConfigured(RuntimeError):
-    pass
-
-
-def load_credentials() -> Credentials:
-    user = os.getenv("GOOGLE_DELEGATED_USER")
-    raw_json = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON")
-    path = os.getenv("GOOGLE_SERVICE_ACCOUNT_FILE")
-    if not user or not (raw_json or path):
-        raise SheetsNotConfigured(
-            "Set GOOGLE_DELEGATED_USER and GOOGLE_SERVICE_ACCOUNT_JSON or GOOGLE_SERVICE_ACCOUNT_FILE"
-        )
-    if raw_json:
-        creds = Credentials.from_service_account_info(json.loads(raw_json), scopes=SCOPES)
-    else:
-        creds = Credentials.from_service_account_file(path, scopes=SCOPES)
-    return creds.with_subject(user)
+# Kept under its old name for callers that catch it
+SheetsNotConfigured = GoogleNotConfigured
 
 
 def records_from_values(values: list[list]) -> list[dict]:
@@ -62,7 +42,7 @@ class PoSheet:
     def __init__(self, sheet_id: str):
         if not sheet_id:
             raise SheetsNotConfigured("Set PO_SHEET_ID")
-        client = gspread.authorize(load_credentials())
+        client = gspread.authorize(delegated_credentials(SCOPES))
         client.set_timeout(SHEETS_TIMEOUT_SECONDS)  # a hung request must not block the run
         self.spreadsheet = client.open_by_key(sheet_id)
 

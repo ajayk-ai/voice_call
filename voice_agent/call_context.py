@@ -45,6 +45,27 @@ def encode(vendor: str, name: str, code: str, lines: list[dict]) -> str:
     return f"{body}.{_sign(body)}"
 
 
+def ticket() -> str:
+    """Proof that a call was placed by a server holding TELER_API_KEY. It rides on the flow URL, /flow hands it
+    to /media, and /media refuses streams without a valid one, so nobody can open /media directly and run a
+    Gemini session on our key."""
+    issued = str(int(time.time()))
+    return f"{issued}.{_sign('ticket|' + issued)}"  # '|' never occurs in an encode() body, so the two can't mix
+
+
+# Clocks of the server that placed the call and the one streaming it may differ a little
+TICKET_CLOCK_SKEW_SECONDS = 5 * 60
+
+
+def ticket_valid(value: str | None) -> bool:
+    if not TELER_API_KEY or not value or len(value) > 64 or "." not in value:
+        return False
+    issued, sig = value.split(".", 1)
+    if not issued.isdigit() or not hmac.compare_digest(sig, _sign("ticket|" + issued)):
+        return False
+    return -TICKET_CLOCK_SKEW_SECONDS <= time.time() - int(issued) <= MAX_AGE_SECONDS
+
+
 def decode(token: str | None) -> dict | None:
     """{"vendor", "prompt", "greeting"} for a valid, fresh token, else None."""
     if not token or len(token) > MAX_TOKEN_CHARS or "." not in token:

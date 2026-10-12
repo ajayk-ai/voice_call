@@ -18,7 +18,9 @@ voice_agent/             # the web service: voice agent + PO follow-up admin, on
     calls.py             #   POST /api/call (place call), /flow, /call-status (FreJun webhooks)
     media.py             #   WS /media  (FreJun phone audio <-> Gemini)
     browser.py           #   WS /test-ws (browser mic <-> Gemini)
+  call_context.py        #   signed call tickets (/media only streams calls we placed) + vendor call scripts
   static/index.html      #   the web page
+common/                  # shared by every package: .env + OS certificate store (env.py), Google credentials (google_auth.py)
 po_followup/             # daily WhatsApp escalation of overdue POs (port of the n8n workflow)
   escalation.py          #   the rules: pending lines, levels, cleared lines, Phone_Master, dedupe
   messages.py            #   WhatsApp texts, recipients, Call/Meeting task rows, Alert_Log rows
@@ -33,10 +35,11 @@ monitoring/tracing.py    # LangSmith tracing shared by voice_agent and po_follow
 po_sync/                 # local-only: live Google Sheet -> PostgreSQL mirror (python -m po_sync)
 scripts/make_call.py     # place a test call from your machine
 tests/                   # pytest: `.venv/Scripts/python -m pytest`
+.github/workflows/ci.yml # CI on every push / PR: `uvx ruff check .` + pytest
 ```
 
 ## 1. Prerequisites
-- Python 3.10+ (`python --version`)
+- Python 3.14+ (`python --version`, see `.python-version`)
 - VS Code with the **Python** extension
 - A GitHub account and a free Render account (https://render.com)
 - Gemini API key (Google AI Studio -> Get API key)
@@ -96,6 +99,9 @@ You can still place a call from your machine with `python scripts/make_call.py` 
 ## Troubleshooting
 - No ring: check `TELER_API_KEY`, and that `FREJUN_PHONE_NUMBER` / `MY_PHONE_NUMBER` are in +91... format.
 - Call connects then drops ("Failed to fetch call flow" in FreJun call logs): the server was asleep or FreJun was given a wrong URL. On Render the server always uses its own `RENDER_EXTERNAL_URL`; do not set `PUBLIC_URL` there.
+- Call connects, then silence, and the logs say "media stream refused: missing or invalid call ticket": every call's
+  flow URL carries a ticket signed with `TELER_API_KEY`, and `/media` refuses streams without one. The machine that
+  placed the call and the server streaming it must have the same `TELER_API_KEY` and both run the current code.
 - "Wrong access code": the code must match `APP_PASSWORD` on Render.
 - Silence from the agent: check `GEMINI_API_KEY` and look for "Stream error" in the logs.
 - Agent logs/transcripts on Render: open the service -> Logs.

@@ -17,3 +17,17 @@ services:
         sync: false
       - key: ADMIN_PASSWORD
         sync: false
+      # Vendor WhatsApp replies -> Vendor_Replies tab (POST /webhooks/ultramsg?secret=...)
+      - key: ULTRAMSG_WEBHOOK_SECRET
+        sync: false
+      - key: PO_SHEET_ID
+        sync: false
+      - key: GOOGLE_DELEGATED_USER
+        sync: false
+      - key: GOOGLE_SERVICE_ACCOUNT_JSON
+        sync: false
+      # Optional: LangSmith traces of live calls
+      - key: LANGSMITH_TRACING
+        sync: false
+      - key: LANGSMITH_API_KEY
+        sync: false

@@ -266,6 +266,11 @@
         <label class="switch"><input type="checkbox" id="tAuto" checked> Run the next scenarios automatically</label>
         <p class="callout warn small" id="tWarn" hidden></p>
         <div class="row"><button id="tStart">Start test</button><span id="tMsg" class="small"></span></div>
+        <hr style="border: 0; border-top: 1px solid var(--line); margin: 16px 0 12px">
+        <h3>Or call the agent now</h3>
+        <p class="small muted">Rings the number above right away with the voice agent reading this vendor's overdue PO lines,
+          without Scenarios 1 and 2. Nothing is logged or changed in the test data.</p>
+        <div class="row"><button id="tCall" class="ghost">📞 Call now</button><span id="tCallMsg" class="small"></span></div>
       </section>
 
       <section class="card" id="testActive" hidden>
@@ -739,6 +744,17 @@ $("tStart").onclick = guard(async () => {
   if (!b.vendor_code) return toast("Pick a vendor first");
   if (!b.mobile) return toast("Enter your WhatsApp number");
   await startTest(b);
+});
+$("tCall").onclick = guard(async () => {
+  const b = formBody();
+  if (!b.vendor_code) return toast("Pick a vendor first");
+  if (!b.mobile) return toast("Enter the number to ring");
+  if (!confirm(`Ring ${b.mobile} now with the agent talking about vendor ${b.vendor_code}'s overdue POs?`)) return;
+  $("tCallMsg").textContent = "Placing call… (can take up to a minute if the voice server is waking up)";
+  try {
+    const r = await api("/test/vendor-call", { method: "POST", body: JSON.stringify({ vendor_code: b.vendor_code, mobile: b.mobile }) });
+    $("tCallMsg").textContent = `Ringing ${r.to}: ${r.vendor}, ${r.lines} overdue line(s). FreJun call id ${r.call_id}`;
+  } catch (e) { $("tCallMsg").textContent = ""; fail(e); }
 });
 $("tAgain").onclick = guard(async () => { const vt = state.settings.vendor_test; await startTest({ vendor_code: vt.vendor_code, mobile: vt.mobile, minutes: vt.minutes, mode: vt.mode, auto: vt.auto }); });
 $("tNext").onclick = guard(async () => {

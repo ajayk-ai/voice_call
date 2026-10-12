@@ -62,3 +62,32 @@ def test_live_prod_run_needs_confirm(code, ready):
 def test_invalid_setting_value_is_400(code, ready):
     r = client.put("/admin/api/test/settings", json={"daily_time": "25:00"}, headers=CODE)
     assert r.status_code == 400 and r.json() == {"error": "Daily time must be HH:MM"}
+
+
+def test_direct_vendor_call(code, ready, monkeypatch):
+    from po_followup import agent_call, store
+
+    class Master:
+        def __init__(self, env):
+            pass
+
+        def read_records(self, title):
+            return [{"PO No": "4500466172", "PO Item No": "10", "Del.Sch Line": "1", "Vendor Code": "802515",
+                     "Vendor Name": "PARAGON ENGINEERING", "Material": "M1", "Mat. Desc": "PILLAR_SUPPORT_PLATE",
+                     "Pending Qty": "78", "UOM": "NOS", "OD Days": "499"}]
+
+    placed = []
+    monkeypatch.setattr(store, "PgStore", Master)
+    monkeypatch.setattr(agent_call.AgentCaller, "call", lambda self, mobile, script: placed.append(mobile) or "call-9")
+    r = client.post("/admin/api/test/vendor-call", headers=CODE, json={"vendor_code": "802515", "mobile": "7200017957"})
+    assert r.status_code == 200 and r.json()["call_id"] == "call-9" and r.json()["lines"] == 1
+    assert placed == ["917200017957"]
+
+    assert client.post("/admin/api/test/vendor-call", headers=CODE,
+                       json={"vendor_code": "999999", "mobile": "7200017957"}).status_code == 400
+
+    def refuse(self, mobile, script):
+        raise agent_call.AgentCallNotConfigured("tunnel down")
+    monkeypatch.setattr(agent_call.AgentCaller, "call", refuse)
+    r = client.post("/admin/api/test/vendor-call", headers=CODE, json={"vendor_code": "802515", "mobile": "7200017957"})
+    assert r.status_code == 400 and "tunnel down" in r.json()["error"]

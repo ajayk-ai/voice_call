@@ -77,6 +77,12 @@ class VendorTest(BaseModel):
     auto: bool = True  # run the next scenarios automatically (needs the scheduler)
 
 
+class VendorCall(BaseModel):
+    """Ring `mobile` now with the voice agent reading this vendor's overdue lines (test data)."""
+    vendor_code: str = Field(min_length=1, max_length=40)
+    mobile: str = Field(min_length=10, max_length=20)
+
+
 # ---------- access and readiness ----------
 
 def admin_code() -> str | None:
@@ -262,6 +268,11 @@ async def start_vendor_test(body: VendorTest):
     run_id = await call(service.start_vendor_test, body.vendor_code.strip(), body.mobile.strip(), body.minutes,
                         body.mode, body.auto)
     return {"ok": True, "run_id": run_id, "scheduler": scheduler_running()}
+
+
+@router.post("/test/vendor-call", summary="Ring a number now with the agent reading one vendor's overdue lines")
+async def vendor_call(body: VendorCall):
+    return {"ok": True, **await call(service.call_vendor_now, body.vendor_code.strip(), body.mobile.strip())}
 
 
 @router.post("/test/vendor-test/stop", summary="Stop the one-vendor test's automatic runs")

@@ -32,3 +32,18 @@ dev = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+# Deprecations inside FastAPI/Starlette/google-genai on Python 3.14; ours still show
+filterwarnings = [
+    "ignore::DeprecationWarning:fastapi.*",
+    "ignore::DeprecationWarning:starlette.*",
+    "ignore::DeprecationWarning:google.genai.*",
+]
+
+# Lint: uvx ruff check .  (also run in CI)
+[tool.ruff]
+line-length = 130
+extend-exclude = [".venv"]
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "W6", "B006"]
+ignore = ["E741"]  # `l` for a PO line is used throughout

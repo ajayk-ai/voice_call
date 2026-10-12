@@ -14,6 +14,7 @@ from teler.exceptions import TelerException
 
 from monitoring.tracing import mask_phones, traceable
 
+from .. import call_context
 from ..bridge import public_url
 from ..config import FREJUN_PHONE_NUMBER, TELER_API_KEY, TELER_TIMEOUT_SECONDS
 from ..security import call_limiter, check_password, client_ip, mask_number
@@ -37,11 +38,12 @@ def error(message: str, status: int) -> JSONResponse:
 async def create_call(to_number: str, base: str, ctx: str | None = None):
     """Ask FreJun to ring `to_number`; FreJun then calls /flow when it is answered.
     `ctx` is a call_context token: the call then uses that vendor's script instead of the sample one."""
+    params = {"ticket": call_context.ticket(), **({"ctx": ctx} if ctx else {})}
     async with AsyncTelerClient(api_key=TELER_API_KEY, timeout=TELER_TIMEOUT_SECONDS) as client:
         call = await client.voice.calls.create(
             from_number=FREJUN_PHONE_NUMBER,
             to_number=to_number,
-            flow_url=f"{base}/flow" + (f"?ctx={ctx}" if ctx else ""),
+            flow_url=f"{base}/flow?{urlencode(params)}",
             status_callback_url=f"{base}/call-status",
             record=True,
         )
@@ -103,11 +105,12 @@ async def flow(request: Request):
     with suppress(Exception):
         log.info("Call answered: %s", await request.json())
     ws_base = public_url(request).replace("https://", "wss://", 1).replace("http://", "ws://", 1)
-    ctx = request.query_params.get("ctx")
+    # The call ticket and vendor script travel on to /media (see call_context)
+    params = {k: request.query_params[k] for k in ("ticket", "ctx") if request.query_params.get(k)}
     return JSONResponse(
         {
             "action": "stream",
-            "ws_url": f"{ws_base}/media" + (f"?{urlencode({'ctx': ctx})}" if ctx else ""),
+            "ws_url": f"{ws_base}/media" + (f"?{urlencode(params)}" if params else ""),
             "sample_rate": "16k",  # caller audio arrives as 16 kHz PCM16, which Gemini takes directly
             "chunk_size": 500,
             "record": True,

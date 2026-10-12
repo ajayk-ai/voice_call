@@ -21,18 +21,11 @@ import sys
 import threading
 from dataclasses import dataclass
 
-import truststore
-
-# Use the OS certificate store, so HTTPS works behind corporate SSL inspection (e.g. Sophos)
-truststore.inject_into_ssl()
-
 import gspread
 import psycopg
-from dotenv import load_dotenv
-from google.oauth2.service_account import Credentials
 from psycopg import sql
 
-load_dotenv()
+from common import google_auth
 
 log = logging.getLogger("po_sync")
 
@@ -53,7 +46,7 @@ def require_env(name: str) -> str:
 
 @dataclass(frozen=True)
 class Config:
-    service_account_file: str
+    """The service account key itself is read by common.google_auth (GOOGLE_SERVICE_ACCOUNT_JSON or _FILE)."""
     delegated_user: str
     sheet_id: str
     interval_seconds: int
@@ -61,8 +54,10 @@ class Config:
 
     @classmethod
     def from_env(cls) -> "Config":
+        if not google_auth.configured():
+            raise SystemExit("Missing GOOGLE_DELEGATED_USER and GOOGLE_SERVICE_ACCOUNT_FILE (or _JSON) in .env "
+                             "(see .env.example)")
         return cls(
-            service_account_file=require_env("GOOGLE_SERVICE_ACCOUNT_FILE"),
             delegated_user=require_env("GOOGLE_DELEGATED_USER"),
             sheet_id=require_env("PO_SHEET_ID"),
             interval_seconds=int(os.getenv("PO_SYNC_INTERVAL_SECONDS", "60")),
@@ -136,9 +131,7 @@ def build_tab(gid: int, title: str, table: str, values: list[list[str]]) -> Tab:
 
 
 def open_sheet(cfg: Config) -> gspread.Spreadsheet:
-    creds = Credentials.from_service_account_file(cfg.service_account_file, scopes=SCOPES)
-    creds = creds.with_subject(cfg.delegated_user)  # domain-wide delegation
-    client = gspread.authorize(creds)
+    client = gspread.authorize(google_auth.delegated_credentials(SCOPES))  # impersonates GOOGLE_DELEGATED_USER
     client.set_timeout(60)  # a hung Google request must not block the sync (or a follow-up run) forever
     return client.open_by_key(cfg.sheet_id)
 

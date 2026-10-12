@@ -3,21 +3,39 @@
 import numpy as np
 
 
+def phone_voice_kernel(taps: int = 161, rate: int = 24000) -> np.ndarray:
+    """FIR filter for 24 kHz speech going down to an 8 kHz phone line (linear phase, frequency-sampled).
+
+    - flat up to ~3.2 kHz, then a sharp cut: everything above 4 kHz (which would fold back as hiss
+      after dropping to 8 kHz) is at least 75 dB down
+    - +3 dB "presence" at 2-3.2 kHz: the consonant range a phone line keeps, so speech sounds clear
+      instead of muffled
+    - -2 dB below 200 Hz: less boom on small phone speakers
+    """
+    points = [(0, -2), (200, -2), (400, 0), (1200, 0), (2000, 3), (3250, 3), (3800, -90), (rate / 2, -90)]
+    freqs = np.linspace(0, rate / 2, 8193)
+    gain = 10 ** (np.interp(freqs, [p[0] for p in points], [p[1] for p in points]) / 20)
+    impulse = np.fft.fftshift(np.fft.irfft(gain))
+    mid = len(gain) - 1
+    h = impulse[mid - taps // 2: mid + taps // 2 + 1] * np.blackman(taps)
+    # unity gain at 800 Hz, the middle of the voice band
+    response = np.abs(np.fft.rfft(h, rate))[800]
+    return h / response
+
+
 class Downsampler:
     """24 kHz PCM16 (Gemini output) -> 8 kHz PCM16 (what FreJun plays).
 
-    Low-pass filters before dropping samples so speech doesn't alias, and keeps
-    filter state across chunks so there are no clicks at chunk boundaries.
+    Filters before dropping samples so speech doesn't alias (and gets a phone-voice EQ, see
+    phone_voice_kernel), and keeps filter state across chunks so there are no clicks at chunk boundaries.
     """
 
     FACTOR = 3
-    TAPS = 63
+    KERNEL = phone_voice_kernel()
+    TAPS = len(KERNEL)
 
     def __init__(self):
-        n = np.arange(self.TAPS) - (self.TAPS - 1) / 2
-        cutoff = 3400 / 24000  # just under the 4 kHz Nyquist of 8 kHz audio
-        h = 2 * cutoff * np.sinc(2 * cutoff * n) * np.hamming(self.TAPS)
-        self.kernel = h / h.sum()
+        self.kernel = self.KERNEL
         self.reset()
 
     def reset(self):

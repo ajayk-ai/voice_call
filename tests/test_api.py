@@ -75,7 +75,102 @@ def test_call_script_token_round_trip_and_tamper_proof():
     assert call_context.decode("garbage") is None and call_context.decode(None) is None
 
 
+@pytest.fixture
+def teler_key(monkeypatch):
+    from voice_agent import call_context
+
+    monkeypatch.setattr(call_context, "TELER_API_KEY", "teler-test-key")
+    return call_context
+
+
+def test_call_ticket_signed_fresh_and_tamper_proof(teler_key, monkeypatch):
+    t = teler_key.ticket()
+    assert teler_key.ticket_valid(t)
+    issued, sig = t.split(".")
+    assert not teler_key.ticket_valid(f"{int(issued) + 1}.{sig}")
+    assert not teler_key.ticket_valid(None) and not teler_key.ticket_valid("") and not teler_key.ticket_valid("x.y")
+    # a vendor script token is signed with the same key but is not a ticket
+    assert not teler_key.ticket_valid(teler_key.encode("A", "A", "1", []))
+    monkeypatch.setattr(teler_key.time, "time", lambda: int(issued) + teler_key.MAX_AGE_SECONDS + 1)
+    assert not teler_key.ticket_valid(t)
+
+
+def test_no_tickets_without_teler_key(monkeypatch):
+    from voice_agent import call_context
+
+    monkeypatch.setattr(call_context, "TELER_API_KEY", None)
+    assert not call_context.ticket_valid(call_context.ticket())
+
+
+def test_media_refuses_streams_without_a_call_ticket(teler_key, monkeypatch):
+    from starlette.websockets import WebSocketDisconnect
+
+    from voice_agent.routes import media
+
+    monkeypatch.setattr(media, "gemini_client", lambda: pytest.fail("Gemini must not be reached"))
+    for url in ("/media", "/media?ticket=123.forged"):
+        with pytest.raises(WebSocketDisconnect) as e:
+            with client.websocket_connect(url):
+                pass
+        assert e.value.code == media.WS_CLOSE_POLICY_VIOLATION
+
+
+def test_flow_passes_call_ticket_to_media():
+    body = client.post("/flow?ticket=1.abc&ctx=xyz", json={}).json()
+    assert body["ws_url"].endswith("/media?ticket=1.abc&ctx=xyz")
+
+
 def test_health_says_it_understands_call_scripts():
     from voice_agent import call_context
 
     assert client.get("/health").headers["x-call-script"] == call_context.VERSION
+
+
+def test_phone_audio_goes_out_in_whole_20ms_packets(teler_key, monkeypatch):
+    """A partial packet at the end of a message is padded with silence by the phone side: audible holes."""
+    import base64
+    import json
+    from contextlib import asynccontextmanager
+    from types import SimpleNamespace as NS
+
+    from voice_agent.routes import media
+
+    def sc(**k):
+        base = dict(interrupted=False, generation_complete=False, turn_complete=False,
+                    input_transcription=None, output_transcription=None)
+        return NS(**{**base, **k})
+
+    # odd chunk sizes (24 kHz PCM16 from Gemini), then the end of the reply
+    replies = [NS(data=b"\x10\x00" * n, server_content=None, usage_metadata=None) for n in (1001, 517, 4099, 2333)]
+    replies.append(NS(data=None, server_content=sc(generation_complete=True, turn_complete=True), usage_metadata=None))
+
+    class Session:
+        def __init__(self):
+            self.passes = 0
+
+        async def send_realtime_input(self, **k):
+            pass
+
+        async def receive(self):
+            self.passes += 1
+            if self.passes == 1:
+                for r in replies:
+                    yield r
+
+    @asynccontextmanager
+    async def connect(**k):
+        yield Session()
+
+    monkeypatch.setattr(media, "gemini_client", lambda: NS(aio=NS(live=NS(connect=connect))))
+    sizes = []
+    with client.websocket_connect(f"/media?ticket={teler_key.ticket()}") as ws:
+        try:
+            while True:
+                msg = json.loads(ws.receive_text())
+                if msg["type"] == "audio":
+                    sizes.append(len(base64.b64decode(msg["audio_b64"])))
+        except Exception:
+            pass
+    assert sizes and all(s % media.FRAME_BYTES == 0 for s in sizes), sizes
+    total_in = sum((1001, 517, 4099, 2333)) / 3 * 2  # 24 kHz -> 8 kHz bytes
+    assert abs(sum(sizes) - total_in) < media.FRAME_BYTES + 10  # nothing lost, at most one packet of padding

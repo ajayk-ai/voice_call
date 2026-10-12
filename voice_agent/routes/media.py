@@ -23,13 +23,23 @@ router = APIRouter()
 # 1600 bytes = 100 ms of 8 kHz PCM16: agent audio is buffered to this size before going to FreJun.
 # The first audio of each reply goes out at once, so buffering never delays the start of a reply.
 AUDIO_CHUNK_BYTES = 1600
+# The phone plays audio in 20 ms packets (320 bytes at 8 kHz). Every message to FreJun is a whole number of
+# packets: a partial packet at the end of a message gets padded with silence, which the caller hears as a
+# click/hole every few hundred ms. Leftover bytes wait for the next message.
+FRAME_BYTES = 320
 # Caller audio from FreJun is PCM16 at 16 kHz: 32 bytes per millisecond
 CALLER_BYTES_PER_MS = 32
+WS_CLOSE_POLICY_VIOLATION = 1008
 
 
 @router.websocket("/media")
 async def media(call_ws: WebSocket):
     sid = new_session_id()
+    if not call_context.ticket_valid(call_ws.query_params.get("ticket")):
+        # Not a call we placed (or the ticket expired): refuse before any Gemini session is opened
+        log.warning("[%s] media stream refused: missing or invalid call ticket", sid)
+        await call_ws.close(code=WS_CLOSE_POLICY_VIOLATION)
+        return
     await call_ws.accept()
     ctx_token = call_ws.query_params.get("ctx")
     context = call_context.decode(ctx_token)
@@ -82,24 +92,28 @@ async def media(call_ws: WebSocket):
                 chunk_id = 0
                 replying = False  # True once this reply's first audio went out
 
-                async def flush():
+                async def flush(end_of_reply: bool = False) -> bool:
+                    """Send the whole 20 ms packets in the buffer; at the end of a reply also the last partial
+                    one, padded once. Returns True if anything was sent."""
                     nonlocal buffer, chunk_id
-                    if buffer:
-                        await call_ws.send_text(
-                            json.dumps(
-                                {"type": "audio", "audio_b64": base64.b64encode(buffer).decode(), "chunk_id": chunk_id}
-                            )
-                        )
-                        chunk_id += 1
-                        buffer = b""
+                    if end_of_reply and len(buffer) % FRAME_BYTES:
+                        buffer += b"\0" * (FRAME_BYTES - len(buffer) % FRAME_BYTES)
+                    whole = len(buffer) - len(buffer) % FRAME_BYTES
+                    if not whole:
+                        return False
+                    out, buffer = buffer[:whole], buffer[whole:]
+                    await call_ws.send_text(
+                        json.dumps({"type": "audio", "audio_b64": base64.b64encode(out).decode(), "chunk_id": chunk_id})
+                    )
+                    chunk_id += 1
+                    return True
 
                 async for response in receive_turns(session):
                     if response.data:
                         # agent speech: 24 kHz PCM16 -> 8 kHz PCM16 -> FreJun
                         buffer += downsampler.process(response.data)
-                        if not replying or len(buffer) >= AUDIO_CHUNK_BYTES:
+                        if (not replying or len(buffer) >= AUDIO_CHUNK_BYTES) and await flush():
                             replying = True
-                            await flush()
 
                     completed = recorder.observe(response)
                     sc = response.server_content
@@ -112,7 +126,7 @@ async def media(call_ws: WebSocket):
                         downsampler.reset()
                         await call_ws.send_text(json.dumps({"type": "clear"}))
                     if sc.generation_complete or sc.turn_complete:
-                        await flush()
+                        await flush(end_of_reply=True)
                         replying = False
                     if completed:
                         user, assistant = completed

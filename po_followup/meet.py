@@ -3,15 +3,12 @@
 Needs https://www.googleapis.com/auth/calendar.events added to the service account's client in
 Workspace Admin > Security > API controls > Domain-wide delegation."""
 
-import json
-import os
 import uuid
 from datetime import datetime, timedelta
 
 from google.auth.transport.requests import AuthorizedSession
-from google.oauth2.service_account import Credentials
 
-from .sheets import SheetsNotConfigured
+from common.google_auth import delegated_credentials
 
 SCOPES = ["https://www.googleapis.com/auth/calendar.events"]
 EVENTS_URL = "https://www.googleapis.com/calendar/v3/calendars/primary/events"
@@ -19,14 +16,7 @@ MEETING_MINUTES = 30
 
 
 def calendar_session() -> AuthorizedSession:
-    user = os.getenv("GOOGLE_DELEGATED_USER")
-    raw_json = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON")
-    path = os.getenv("GOOGLE_SERVICE_ACCOUNT_FILE")
-    if not user or not (raw_json or path):
-        raise SheetsNotConfigured("Set GOOGLE_DELEGATED_USER and GOOGLE_SERVICE_ACCOUNT_JSON or GOOGLE_SERVICE_ACCOUNT_FILE")
-    creds = (Credentials.from_service_account_info(json.loads(raw_json), scopes=SCOPES) if raw_json
-             else Credentials.from_service_account_file(path, scopes=SCOPES))
-    return AuthorizedSession(creds.with_subject(user))
+    return AuthorizedSession(delegated_credentials(SCOPES))
 
 
 class MeetScheduler:

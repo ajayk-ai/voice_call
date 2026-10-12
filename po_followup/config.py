@@ -3,21 +3,9 @@
 import os
 from dataclasses import dataclass
 
-import truststore
+from common.env import env_bool
 
-# Use the OS certificate store, so HTTPS works behind corporate SSL inspection (e.g. Sophos)
-truststore.inject_into_ssl()
-
-from dotenv import load_dotenv
-
-load_dotenv()
-
-
-def env_bool(name: str, default: bool) -> bool:
-    value = os.getenv(name)
-    if value is None or value.strip() == "":
-        return default
-    return value.strip().lower() in ("1", "true", "yes", "on")
+__all__ = ["Settings", "env_bool"]
 
 
 @dataclass(frozen=True)

@@ -104,10 +104,12 @@ def sync_sheet_to_prod() -> dict:
     """Pull the latest Google Sheet into the production database (same as `python -m po_sync --once`)."""
     from po_sync import sync as po_sync
 
+    sheet_id = os.getenv("PO_SHEET_ID")
+    if not sheet_id:
+        raise RuntimeError("Set PO_SHEET_ID to refresh production from the Google Sheet")
     cfg = po_sync.Config(
-        service_account_file=os.environ["GOOGLE_SERVICE_ACCOUNT_FILE"],
-        delegated_user=os.environ["GOOGLE_DELEGATED_USER"],
-        sheet_id=os.environ["PO_SHEET_ID"],
+        delegated_user=os.getenv("GOOGLE_DELEGATED_USER", ""),
+        sheet_id=sheet_id,
         interval_seconds=60,
         db=store.db_params("prod"),
     )
@@ -349,6 +351,28 @@ def start_vendor_test(vendor_code: str, mobile: str, minutes: float, mode: str, 
     if auto:
         store.save_settings(env, {"auto_enabled": True})
     return run_id
+
+
+def call_vendor_now(vendor_code: str, mobile: str) -> dict:
+    """Ring `mobile` right away with the voice agent reading this vendor's overdue lines from the test data,
+    without going through Scenarios 1-2. Nothing is written to the tracker or logs."""
+    from .agent_call import AgentCaller, call_script
+    from .escalation import build_groups, is_valid_mobile, normalize_mobile
+
+    number = normalize_mobile(mobile, True, mobile)
+    if not is_valid_mobile(number):
+        raise ValueError("Enter the number to ring, e.g. 9876543210 or +919876543210")
+    groups = build_groups(store.PgStore("test").read_records("Master"), [], datetime.now(ZONE))
+    g = next((g for g in groups if g["vendorCode"] == vendor_code), None)
+    if not g:
+        raise ValueError(f"Vendor {vendor_code} has no pending lines (OD Days > 0) in the test data")
+    try:
+        call_id = AgentCaller().call(number, call_script(g))
+    except Exception as e:  # not configured, tunnel down, FreJun error: show the reason on the page
+        log.warning("Direct agent call for %s failed: %s", vendor_code, e)
+        raise ValueError(f"Call not placed: {getattr(e, 'message', None) or e}") from e
+    log.info("Direct agent call for %s placed, FreJun call id %s", g["vendorLabel"], call_id)
+    return {"call_id": call_id, "vendor": g["vendorLabel"], "lines": g["overdueLines"], "to": number}
 
 
 def stop_vendor_test(reason: str | None = None) -> None:
