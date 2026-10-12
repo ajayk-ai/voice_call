@@ -4,9 +4,9 @@ Phone call -> FreJun (Teler) Media Stream -> FastAPI server (`voice_agent/`) -> 
 
 ## Project layout
 ```
-main.py                  # entry point for `uvicorn main:app` (Render start command); imports voice_agent.app
-voice_agent/             # the voice agent web service
-  app.py                 #   FastAPI app: wires routers, global error handler
+main.py                  # entry point for `uvicorn main:app`; imports voice_agent.app
+voice_agent/             # the web service: voice agent + PO follow-up admin, one FastAPI app
+  app.py                 #   FastAPI app: wires routers (incl. po_followup admin), error handlers, lifespan
   config.py              #   settings from .env / Render env vars, logging
   prompts.py             #   what the agent says (system prompt, greeting)
   gemini.py              #   Gemini Live client and session config
@@ -14,11 +14,22 @@ voice_agent/             # the voice agent web service
   security.py            #   access code, rate limit, number masking
   bridge.py              #   shared websocket bridge helpers, public URL
   routes/
-    pages.py             #   GET /, /test, /health
+    pages.py             #   GET /, /test, /health, /api/status
     calls.py             #   POST /api/call (place call), /flow, /call-status (FreJun webhooks)
     media.py             #   WS /media  (FreJun phone audio <-> Gemini)
     browser.py           #   WS /test-ws (browser mic <-> Gemini)
   static/index.html      #   the web page
+po_followup/             # daily WhatsApp escalation of overdue POs (port of the n8n workflow)
+  escalation.py          #   the rules: pending lines, levels, cleared lines, Phone_Master, dedupe
+  messages.py            #   WhatsApp texts, recipients, Call/Meeting task rows, Alert_Log rows
+  run.py                 #   one daily run, end to end
+  sheets.py / whatsapp.py#   Google Sheets (delegation) and UltraMsg clients
+  replies.py             #   POST /webhooks/ultramsg: stores vendor replies (served by the web app)
+  store.py               #   PostgreSQL storage, one database per environment (prod / test)
+  service.py             #   runs, run history, settings, automatic scheduler
+  admin.py + static/     #   admin page GET /admin + API /admin/api/* (router mounted in voice_agent/app.py)
+  cli.py                 #   python -m po_followup admin | run | scheduler | copy-prod-to-test | ...
+monitoring/tracing.py    # LangSmith tracing shared by voice_agent and po_followup
 po_sync/                 # local-only: live Google Sheet -> PostgreSQL mirror (python -m po_sync)
 scripts/make_call.py     # place a test call from your machine
 tests/                   # pytest: `.venv/Scripts/python -m pytest`
@@ -109,3 +120,101 @@ What you get:
 - `public.sync_state`: per tab, row count, last sync time and last error.
 - Only changed tabs are rewritten, each in one transaction, so queries never see a half-written tab.
   Tabs deleted from the sheet are dropped from the mirror.
+
+## PO follow-up workflow (WhatsApp escalation)
+`po_followup/` is the Python version of the n8n workflow "scm po follow up agent". Same sheet, same tabs, same rules:
+a Master row is pending when **OD Days > 0**; each line escalates one level per day, tracked in `Line_Tracker`:
+
+| Level | Who gets WhatsApp | Also |
+|---|---|---|
+| Day 0 | vendor planner + coordinator (Phone_Master Scenario 1, else Master) | |
+| Day 1 | vendor management (Scenario 2) | |
+| Day 2 | buyer | row in `Call_Tasks` (buyer calls Scenario 3 number) |
+| Day 3 | buyer + SCM HOD | row in `Meeting_Tasks` |
+
+A line that leaves Master (or OD Days <= 0) is marked CLEARED. One message per vendor per level per day;
+`Alert_Log` Dedupe Keys stop repeats even if the run is started twice.
+
+### Admin page, production and test
+The admin page is part of the main web app, next to the call and voice agent pages (shared top menu):
+
+| URL | What |
+|---|---|
+| `/` | Normal call / Voice agent tabs |
+| `/admin` | PO follow-up admin |
+| `/docs` | API reference (Swagger UI), `/admin/api/*` included |
+
+```
+.venv/Scripts/python -m po_followup admin      # whole app on http://127.0.0.1:8100 (this PC only) + scheduler
+```
+Or `uvicorn main:app --port 5050`: the scheduler runs there too (set `FOLLOWUP_SCHEDULER=false` to turn it off).
+
+Reliability:
+- **One run at a time per environment, across processes.** A run holds a PostgreSQL advisory lock, so two servers
+  (or the server and the CLI) can never run the same environment together and double-send WhatsApp.
+- **Failed daily runs are retried** up to 3 times, 10 minutes apart. Set `FOLLOWUP_ALERT_MOBILE` to get a WhatsApp
+  when an automatic run fails.
+- **Alert_Log is written after each vendor**, so a crash mid-run keeps the record of what was already sent.
+- **Runs left "running"** by a crashed process are marked failed within about a minute.
+- **Timeouts** on PostgreSQL (10 s connect, 5 min per statement), Google Sheets (60 s) and UltraMsg (20 s), so a hung
+  call cannot block every later run.
+- The Overview's **Health** card (and a banner on every tab) shows a stalled scheduler, failing automatic runs and stuck runs.
+- A vendor test that has not moved for 30 minutes (e.g. the server was off) is stopped instead of resumed.
+
+Access: the admin API needs `ADMIN_PASSWORD` (falls back to `APP_PASSWORD`), sent by the page as `X-Admin-Code`.
+With neither set, only this PC (127.0.0.1, no proxy) can open it. The admin needs PostgreSQL (`psycopg`);
+without it, e.g. on Render, the calls and voice agent still work and the admin page says it is unavailable.
+Two PostgreSQL databases, switched at the top of the page:
+
+| | Production (`pending_po`) | Test (`pending_po_test`) |
+|---|---|---|
+| PO data | mirror of the Google Sheet (refreshed before each run, or "Sync Google Sheet now") | copy of production ("Copy production data into test"), edit freely in pgAdmin |
+| Follow-up state | schema `followup`: line_tracker, alert_log, call_tasks, meeting_tasks, runs, settings | same tables, separate data ("Clear test tracker & logs") |
+
+Per environment you control:
+- **Escalation intervals**: wait after Day 0 -> Day 1, Day 1 -> Day 2, Day 2 -> Day 3 (minutes, hours or days).
+  Production default 1 day each; test default 5 minutes, so a full escalation can be watched in minutes.
+- **Manual trigger**: Preview (writes nothing) / Dry run (no WhatsApp; in test it still escalates the tracker and
+  writes tasks) / Live (sends WhatsApp; pilot mode sends everything to the pilot number).
+- **Automatic trigger**: on/off, dry or live, once a day at a time (IST) or every N minutes.
+- **Sending**: pilot mode, pilot number and vendors, SCM HOD number, lines per message.
+- Run history (click a run for every message), line tracker, alert log, call and meeting tasks.
+
+Admin page sections: **Overview** (how the escalation works, run now, run history), **Vendor trace** (per vendor:
+Scenario 1 -> 2 -> 3 -> meeting timeline, countdown to the next step, every message sent, numbers used, tasks, PO lines),
+**Test a vendor**, **Settings**, **Data & logs**.
+
+**Test a vendor** (test environment): pick a vendor with pending lines, enter your WhatsApp number and a wait
+(e.g. 1 minute), press Start test. It resets that vendor's test history, turns on pilot mode for that vendor only
+with your number, sends Scenario 1 at once, and the scheduler sends Scenario 2, Scenario 3 and the Day 3 meeting one
+wait apart (about 4 minutes for 1-minute waits). Each WhatsApp starts with "PILOT TEST – real recipient would be: ...".
+Automatic runs stop when the vendor reaches the meeting step. The server must keep running for the next steps.
+
+Live production runs and automatic live sending in production must be confirmed by typing LIVE.
+The scheduler runs while the admin page process is running (`python -m po_followup scheduler` runs it without the page).
+
+The first time, `store.import_sheet_state()` copied the tracker rows n8n wrote in the Google Sheet into production,
+so escalation continues where n8n left off.
+
+Command line equivalents: `python -m po_followup run --env test --mode dry`, `copy-prod-to-test`,
+`setup-tabs`, `build-phone-master`.
+
+Safety: keep the n8n workflow off, or vendors get messages from both.
+
+Vendor replies: the web app serves `POST /webhooks/ultramsg`. On Render set `GOOGLE_SERVICE_ACCOUNT_JSON`,
+`GOOGLE_DELEGATED_USER`, `PO_SHEET_ID` and `ULTRAMSG_WEBHOOK_SECRET`, then set the UltraMsg instance webhook URL to
+`https://<app>.onrender.com/webhooks/ultramsg?secret=<ULTRAMSG_WEBHOOK_SECRET>` with webhook_message_received on.
+
+## Monitoring (LangSmith)
+Set `LANGSMITH_TRACING=true` and `LANGSMITH_API_KEY` (smith.langchain.com -> Settings -> API Keys) in `.env`,
+and on Render for live calls. Traces go to the `LANGSMITH_PROJECT` project (default `po-voice-agent`).
+Tracing is off without a key, and a LangSmith outage never affects calls or runs.
+
+| Trace | Children | Shows |
+|---|---|---|
+| `phone_call` / `browser_session` (tags `voice-agent`) | `turn N` (llm) | vendor said -> agent said, Gemini tokens, `first_audio_ms` (agent response latency), interruptions, call duration, errors |
+| `place_call`, `call_status` | | FreJun call creation and status callbacks (hang-up reasons) |
+| `po_followup_daily_run` (tag `po-followup`) | `vendor_alert` -> `whatsapp_send`, `sheet_write` | per vendor/level: lines, POs, recipient role, send status; run totals by status |
+
+Phone numbers are masked (`98765*****`) in traces. Call transcripts and WhatsApp texts (vendor names, PO numbers,
+quantities) are sent to LangSmith as-is.

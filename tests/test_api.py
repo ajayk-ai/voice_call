@@ -45,3 +45,37 @@ def test_browser_ws_rejects_wrong_code(password):
     with client.websocket_connect("/test-ws") as ws:
         ws.send_json({"type": "auth", "code": "nope"})
         assert ws.receive_json() == {"type": "error", "text": "Wrong access code."}
+
+
+def test_ultramsg_webhook_secret_and_filtering(monkeypatch):
+    monkeypatch.setenv("ULTRAMSG_WEBHOOK_SECRET", "hook")
+    group_msg = {"event_type": "message_received", "data": {"from": "123@g.us", "body": "hi"}}
+    assert client.post("/webhooks/ultramsg?secret=bad", json=group_msg).status_code == 403
+    r = client.post("/webhooks/ultramsg?secret=hook", json=group_msg)
+    assert r.status_code == 200 and r.json() == {"ok": True, "stored": False}
+
+
+def test_flow_passes_call_script_token_to_media():
+    body = client.post("/flow?ctx=abc123", json={}).json()
+    assert body["ws_url"].endswith("/media?ctx=abc123")
+
+
+def test_call_script_token_round_trip_and_tamper_proof():
+    from voice_agent import call_context
+
+    token = call_context.encode("ACME (400200)", "ACME", "400200", [
+        {"po": "4500000001", "item": "10", "desc": "Gear", "due": "01-Oct-2026", "pending": "5.000", "uom": "EA", "od": 8}])
+    script = call_context.decode(token)
+    assert script["vendor"] == "ACME (400200)" and "ACME" in script["greeting"]
+    assert "VENDOR: ACME (vendor code 4 0 0 2 0 0)" in script["prompt"]
+    assert "PO 4 5 0 0 0 0 0 0 0 1, line 10 - Gear - due 01-Oct-2026 - 5 EA pending - 8 days late" in script["prompt"]
+    body, sig = token.rsplit(".", 1)
+    forged = call_context.encode("X", "X", "1", []).rsplit(".", 1)[0] + "." + sig
+    assert call_context.decode(forged) is None
+    assert call_context.decode("garbage") is None and call_context.decode(None) is None
+
+
+def test_health_says_it_understands_call_scripts():
+    from voice_agent import call_context
+
+    assert client.get("/health").headers["x-call-script"] == call_context.VERSION

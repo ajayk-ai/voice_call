@@ -138,7 +138,9 @@ def build_tab(gid: int, title: str, table: str, values: list[list[str]]) -> Tab:
 def open_sheet(cfg: Config) -> gspread.Spreadsheet:
     creds = Credentials.from_service_account_file(cfg.service_account_file, scopes=SCOPES)
     creds = creds.with_subject(cfg.delegated_user)  # domain-wide delegation
-    return gspread.authorize(creds).open_by_key(cfg.sheet_id)
+    client = gspread.authorize(creds)
+    client.set_timeout(60)  # a hung Google request must not block the sync (or a follow-up run) forever
+    return client.open_by_key(cfg.sheet_id)
 
 
 def read_all_tabs(spreadsheet: gspread.Spreadsheet) -> list[Tab]:

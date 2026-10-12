@@ -1,0 +1,833 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PO Follow-up Admin</title>
+<style>
+  :root {
+    --bg: #f4f6f8; --card: #fff; --fg: #1d242b; --muted: #5d6874; --line: #dde2e7; --soft: #eef1f4;
+    --accent: #1f6fb2; --accent-soft: #e3eef8; --accent-fg: #fff; --ok: #2f7d4f; --ok-soft: #e4f3ea;
+    --warn: #a15c07; --warn-soft: #fbf0e0; --bad: #c2412d; --bad-soft: #fbe7e3;
+    --prod: #c2412d; --test: #2f7d4f;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #14181c; --card: #1c2227; --fg: #e6eaee; --muted: #9aa5b0; --line: #2e363e; --soft: #252c33;
+      --accent: #4a9be0; --accent-soft: #1b2f42; --accent-fg: #0d1216; --ok: #6cc893; --ok-soft: #1a3326;
+      --warn: #e0a24f; --warn-soft: #3a2a14; --bad: #e0664f; --bad-soft: #3d1f19;
+      --prod: #e0664f; --test: #6cc893; color-scheme: dark; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.5 "Segoe UI", system-ui, sans-serif; }
+  [hidden] { display: none !important; }
+  header { position: sticky; top: 0; z-index: 5; background: var(--card); border-bottom: 1px solid var(--line);
+    border-top: 4px solid var(--envc, var(--line)); }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 0 16px; }
+  .topnav { display: flex; flex-wrap: wrap; gap: 4px 16px; align-items: center; padding-top: 8px; font-size: .88rem; }
+  .topnav a { color: var(--muted); text-decoration: none; font-weight: 600; border-bottom: 2px solid transparent; }
+  .topnav a:hover, .topnav a[aria-current="page"] { color: var(--fg); border-bottom-color: var(--accent); }
+  .topnav .brand { color: var(--fg); margin-right: 8px; }
+  .titlebar { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center; padding: 8px 0; }
+  h1 { font-size: 1.2rem; margin: 0; margin-right: auto; }
+  .views { display: flex; gap: 2px; overflow-x: auto; }
+  .views button { background: none; color: var(--muted); border-radius: 0; padding: 10px 14px; border-bottom: 3px solid transparent; white-space: nowrap; }
+  .views button[aria-selected="true"] { color: var(--fg); border-bottom-color: var(--envc); }
+  main { padding-top: 16px; padding-bottom: 48px; }
+  .view { display: grid; gap: 16px; }
+  .cols { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); align-items: start; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 16px; display: grid; gap: 12px; min-width: 0; }
+  h2 { font-size: 1rem; margin: 0; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  h3 { font-size: .92rem; margin: 0; }
+  p { margin: 0; }
+  .muted { color: var(--muted); }
+  .small { font-size: .85rem; }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .seg button { border: 0; border-radius: 0; background: transparent; color: var(--fg); padding: 7px 14px; }
+  .seg button[aria-pressed="true"] { background: var(--envc); color: #fff; }
+  #tabs.seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-fg); }
+  button { font: 600 .9rem/1.2 inherit; padding: 9px 14px; border: 1px solid transparent; border-radius: 8px; cursor: pointer;
+    background: var(--accent); color: var(--accent-fg); }
+  button.ghost { background: transparent; color: var(--fg); border-color: var(--line); }
+  button.danger { background: var(--bad); color: #fff; }
+  button:disabled { opacity: .5; cursor: default; }
+  button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; }
+  .stat { background: var(--soft); border-radius: 8px; padding: 10px 12px; }
+  .stat b { display: block; font-size: 1.35rem; font-variant-numeric: tabular-nums; }
+  label { display: grid; gap: 4px; font-weight: 600; font-size: .85rem; }
+  input, select { font: inherit; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--fg); min-width: 0; width: 100%; }
+  input[type="checkbox"], input[type="radio"] { width: 18px; height: 18px; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .interval { display: grid; grid-template-columns: 1fr 90px 110px; gap: 8px; align-items: center; }
+  .switch { display: flex; gap: 8px; align-items: center; font-weight: 600; }
+  .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: .75rem; font-weight: 700; background: var(--soft); white-space: nowrap; }
+  .pill.ok, .pill.SENT, .pill.MEETING_TASK_CREATED { color: var(--ok); background: var(--ok-soft); }
+  .pill.DRY_RUN { color: var(--accent); background: var(--accent-soft); }
+  .pill.failed, .pill.FAILED, .pill.INVALID_MOBILE { color: var(--bad); background: var(--bad-soft); }
+  .pill.running, .pill.warn { color: var(--warn); background: var(--warn-soft); }
+  .envtag { color: #fff; background: var(--envc); padding: 3px 10px; border-radius: 6px; font-weight: 700; font-size: .8rem; letter-spacing: .04em; }
+  .tablewrap { overflow: auto; max-height: 420px; border: 1px solid var(--line); border-radius: 8px; }
+  table { border-collapse: collapse; width: 100%; font-size: .82rem; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; white-space: nowrap; }
+  td.wrap { white-space: pre-wrap; min-width: 260px; }
+  th { position: sticky; top: 0; background: var(--soft); z-index: 1; }
+  tr.click { cursor: pointer; } tr.click:hover td { background: var(--soft); }
+  .callout { border-radius: 8px; padding: 10px 12px; background: var(--accent-soft); border-left: 4px solid var(--accent); }
+  .callout.ok { background: var(--ok-soft); border-left-color: var(--ok); }
+  .callout.warn { background: var(--warn-soft); border-left-color: var(--warn); }
+  #toast { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); background: var(--fg); color: var(--bg);
+    padding: 10px 16px; border-radius: 8px; display: none; max-width: calc(100% - 32px); z-index: 20; }
+  .dirty { color: var(--warn); font-weight: 600; }
+  dialog { border: 1px solid var(--line); border-radius: 10px; background: var(--card); color: var(--fg); width: min(1000px, calc(100% - 32px)); }
+  dialog::backdrop { background: rgb(0 0 0 / .4); }
+  #gate { max-width: 420px; margin: 48px auto; }
+  #gateMsg.err { color: var(--bad); font-weight: 600; }
+
+  /* escalation flow / vendor timeline */
+  .flow { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; counter-reset: step; }
+  .step { position: relative; border: 1px solid var(--line); border-radius: 10px; padding: 12px; display: grid; gap: 4px; align-content: start; background: var(--card); }
+  .step:not(:last-child)::after { content: "→"; position: absolute; right: -10px; top: 18px; transform: translateX(50%);
+    color: var(--muted); font-weight: 700; background: var(--bg); line-height: 1; padding: 2px 0; }
+  .step .head { display: flex; gap: 8px; align-items: center; }
+  .dot { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; font-size: .8rem;
+    background: var(--soft); color: var(--muted); flex: none; }
+  .step .sname { font-weight: 700; }
+  .step .day { font-size: .75rem; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+  .step .stitle { font-weight: 600; }
+  .step .when { margin-top: 6px; font-size: .85rem; font-weight: 600; }
+  .step.done { border-color: var(--ok); background: var(--ok-soft); }
+  .step.done .dot { background: var(--ok); color: #fff; }
+  .step.done .when { color: var(--ok); }
+  .step.next { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+  .step.next .dot { background: var(--accent); color: var(--accent-fg); }
+  .step.next .when { color: var(--accent); }
+  .step.later { opacity: .75; }
+  .wait { font-size: .75rem; color: var(--muted); }
+
+  /* vendor trace layout */
+  .tracegrid { display: grid; grid-template-columns: 320px 1fr; gap: 16px; align-items: start; }
+  .vlist { list-style: none; margin: 0; padding: 0; max-height: 70vh; overflow-y: auto; border: 1px solid var(--line); border-radius: 8px; }
+  .vlist li button { width: 100%; text-align: left; background: none; color: var(--fg); border-radius: 0; border: 0; border-bottom: 1px solid var(--line);
+    padding: 8px 10px; display: grid; gap: 2px; font-weight: 400; }
+  .vlist li button:hover { background: var(--soft); }
+  .vlist li button[aria-current="true"] { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
+  .vlist .vname { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .kv { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; font-size: .88rem; }
+  .kv dt { color: var(--muted); } .kv dd { margin: 0; font-weight: 600; overflow-wrap: anywhere; }
+  details.msgs { border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; }
+  details.msgs summary { cursor: pointer; font-weight: 600; }
+  .msg { border-top: 1px solid var(--line); padding: 8px 0; display: grid; gap: 4px; }
+  .msg pre { margin: 0; white-space: pre-wrap; font: .82rem/1.45 ui-monospace, Consolas, monospace; background: var(--soft); padding: 8px; border-radius: 6px; max-height: 260px; overflow: auto; }
+  .steps-howto { margin: 0; padding-left: 20px; display: grid; gap: 4px; }
+  @media (max-width: 860px) {
+    .tracegrid { grid-template-columns: 1fr; } .vlist { max-height: 300px; }
+    .flow { grid-template-columns: 1fr 1fr; } .step::after { display: none; }
+  }
+  @media (max-width: 520px) { .grid2, .interval, .flow { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <nav class="topnav" aria-label="Pages">
+      <a class="brand" href="/">PO Agent</a>
+      <a href="/?tab=phone">Normal call</a>
+      <a href="/?tab=browser">Voice agent</a>
+      <a href="/admin" aria-current="page">Follow-up admin</a>
+      <a href="/docs">API docs</a>
+    </nav>
+    <div class="titlebar">
+      <h1>PO Follow-up Admin</h1>
+      <span id="busy" class="pill running" hidden>Run in progress…</span>
+      <div class="seg" role="group" aria-label="Environment">
+        <button data-env="prod">Production</button>
+        <button data-env="test">Test</button>
+      </div>
+    </div>
+    <div class="views" role="tablist" aria-label="Sections">
+      <button role="tab" data-view="overview">Overview</button>
+      <button role="tab" data-view="vendors">Vendor trace</button>
+      <button role="tab" data-view="test">Test a vendor</button>
+      <button role="tab" data-view="settings">Settings</button>
+      <button role="tab" data-view="data">Data &amp; logs</button>
+    </div>
+  </div>
+</header>
+
+<section class="card" id="gate" hidden>
+  <h2>Admin sign-in</h2>
+  <form id="gateForm" style="display:grid;gap:12px">
+    <p id="gateMsg" class="small"></p>
+    <label id="gateCodeWrap">Admin code
+      <input id="gateCode" type="password" autocomplete="current-password" required>
+    </label>
+    <div class="row"><button type="submit" id="gateBtn">Open admin</button></div>
+  </form>
+</section>
+
+<main class="wrap" id="app" hidden>
+  <div class="callout warn" id="alerts" role="alert" hidden style="margin-bottom:16px"></div>
+
+  <!-- ===================== OVERVIEW ===================== -->
+  <section class="view" data-view="overview">
+    <section class="card">
+      <h2><span class="envtag" id="envtag"></span> <span id="dbname" class="muted small"></span></h2>
+      <div class="stats" id="stats"></div>
+    </section>
+
+    <section class="card">
+      <h2>Health</h2>
+      <dl class="kv" id="health"></dl>
+    </section>
+
+    <section class="card">
+      <h2>How the escalation works</h2>
+      <p class="small muted">Every PO line with <b>OD Days &gt; 0</b> is pending. It moves one step at a time; each step waits for the interval
+        set in Settings. A line that is no longer pending is marked CLEARED and stops. The numbers come from the Phone_Master tab
+        (Scenario 1 / 2 / 3), falling back to Master.</p>
+      <ol class="flow" id="howflow"></ol>
+    </section>
+
+    <div class="cols">
+      <section class="card">
+        <h2>Run now</h2>
+        <p class="small muted">
+          <b>Preview</b>: shows what would be sent, writes nothing.
+          <b>Dry run</b>: no WhatsApp. In <b>test</b> it still moves vendors to the next step and writes tasks; in production it changes nothing.
+          <b>Live</b>: sends WhatsApp (only to the pilot number while pilot mode is on) and moves vendors to the next step.
+        </p>
+        <div class="row">
+          <button data-run="preview" class="ghost">Preview</button>
+          <button data-run="dry" class="ghost">Dry run</button>
+          <button data-run="live" class="danger">Live run</button>
+        </div>
+        <div id="lastrun" class="small"></div>
+      </section>
+      <section class="card">
+        <h2>Automatic runs</h2>
+        <div id="autoSummary" class="small"></div>
+        <div class="row"><button class="ghost" data-goto="settings">Change in Settings</button></div>
+      </section>
+    </div>
+
+    <section class="card">
+      <h2>Run history <span class="small muted">(click a run to see every message)</span></h2>
+      <div class="tablewrap"><table id="runs"></table></div>
+    </section>
+  </section>
+
+  <!-- ===================== VENDOR TRACE ===================== -->
+  <section class="view" data-view="vendors" hidden>
+    <div class="tracegrid">
+      <section class="card">
+        <h2>Vendors</h2>
+        <input id="vsearch" type="search" placeholder="Search name or code" aria-label="Search vendors">
+        <p class="small muted" id="vcount"></p>
+        <ul class="vlist" id="vlist"></ul>
+      </section>
+      <div id="trace" class="view"><section class="card"><p class="muted">Pick a vendor to see where it is in Scenario 1 → 2 → 3 → meeting.</p></section></div>
+    </div>
+  </section>
+
+  <!-- ===================== TEST A VENDOR ===================== -->
+  <section class="view" data-view="test" hidden>
+    <section class="card" id="testProd">
+      <h2>Test a vendor</h2>
+      <p>Vendor tests run only on <b>test data</b>, so production and real vendors are never touched.</p>
+      <div class="row"><button id="toTest">Switch to the Test environment</button></div>
+    </section>
+
+    <div id="testBody" class="view">
+      <section class="card" id="testForm">
+        <h2>Test the whole escalation on one vendor</h2>
+        <ol class="steps-howto small">
+          <li>Pick a vendor that has pending lines in the test data.</li>
+          <li>Enter <b>your</b> WhatsApp number. Every message goes to you (pilot mode), starting with a line that says who would really get it.</li>
+          <li>Choose the wait between scenarios (1 minute instead of 1 day) and press <b>Start test</b>.</li>
+        </ol>
+        <p class="small muted">Scenario 1 is sent right away. Then, one wait apart: Scenario 2, Scenario 3 (buyer call task) and the Day 3 meeting,
+          so the full flow finishes in about 4 waits. Starting resets this vendor's test history and changes the test settings (pilot mode on, this vendor only, your number, the wait).</p>
+        <div class="grid2">
+          <label>Vendor
+            <input id="tVendor" list="tVendors" placeholder="Type a name or code" autocomplete="off">
+            <datalist id="tVendors"></datalist>
+          </label>
+          <label>Your WhatsApp number
+            <input id="tMobile" inputmode="tel" placeholder="9876543210" autocomplete="tel">
+          </label>
+          <label>Wait between scenarios (minutes)
+            <input id="tMinutes" type="number" min="1" max="1440" step="1" value="1">
+          </label>
+          <label>Messages
+            <select id="tMode"><option value="live">Send real WhatsApp to my number</option><option value="dry">Dry run (no WhatsApp, only logs)</option></select>
+          </label>
+        </div>
+        <label class="switch"><input type="checkbox" id="tAuto" checked> Run the next scenarios automatically</label>
+        <p class="callout warn small" id="tWarn" hidden></p>
+        <div class="row"><button id="tStart">Start test</button><span id="tMsg" class="small"></span></div>
+      </section>
+
+      <section class="card" id="testActive" hidden>
+        <h2>Current test <span id="tStatus" class="pill"></span></h2>
+        <div id="tInfo" class="small"></div>
+        <p class="callout warn small" id="tReason" hidden></p>
+        <div class="row">
+          <button id="tNext">Run next step now</button>
+          <button id="tStop" class="ghost">Stop automatic runs</button>
+          <button id="tAgain" class="ghost">Start over</button>
+        </div>
+      </section>
+      <div id="testTrace" class="view"></div>
+    </div>
+  </section>
+
+  <!-- ===================== SETTINGS ===================== -->
+  <section class="view" data-view="settings" hidden>
+    <div class="cols">
+      <section class="card">
+        <h2>Automatic trigger</h2>
+        <label class="switch"><input type="checkbox" id="auto_enabled"> Run automatically</label>
+        <div class="grid2">
+          <label>Mode
+            <select id="auto_mode"><option value="dry">Dry run</option><option value="live">Live (send WhatsApp)</option></select>
+          </label>
+          <label>Schedule
+            <select id="schedule_type"><option value="daily">Once a day</option><option value="interval">Every N minutes</option></select>
+          </label>
+          <label id="daily_wrap">Time (IST)<input type="time" id="daily_time"></label>
+          <label id="every_wrap">Every (minutes)<input type="number" id="every_minutes" min="1" max="1440"></label>
+        </div>
+        <div class="small muted" id="nextrun"></div>
+      </section>
+
+      <section class="card">
+        <h2>Wait between scenarios</h2>
+        <p class="small muted">How long a pending line waits at each step before it moves to the next. A run only moves lines whose wait is over.</p>
+        <div class="interval"><span>Scenario 1 → Scenario 2</span><input type="number" min="0" step="any" id="iv0" aria-label="Wait after Scenario 1"><select id="iu0" aria-label="Unit"></select></div>
+        <div class="interval"><span>Scenario 2 → Scenario 3</span><input type="number" min="0" step="any" id="iv1" aria-label="Wait after Scenario 2"><select id="iu1" aria-label="Unit"></select></div>
+        <div class="interval"><span>Scenario 3 → Day 3 meeting</span><input type="number" min="0" step="any" id="iv2" aria-label="Wait after Scenario 3"><select id="iu2" aria-label="Unit"></select></div>
+      </section>
+
+      <section class="card">
+        <h2>Sending</h2>
+        <label class="switch"><input type="checkbox" id="pilot_mode"> Pilot mode (only pilot vendors; every message goes to the pilot number)</label>
+        <div class="grid2">
+          <label>Pilot mobile<input id="pilot_mobile" inputmode="tel" placeholder="7200081289"></label>
+          <label>Pilot vendor codes<input id="pilot_vendor_codes" placeholder="400186,100791"></label>
+          <label>SCM HOD mobile<input id="scm_hod_mobile" inputmode="tel"></label>
+          <label>PO lines per message<input type="number" id="max_lines_per_message" min="1" max="50"></label>
+        </div>
+        <label class="switch" id="refresh_wrap"><input type="checkbox" id="refresh_from_sheet"> Pull the latest Google Sheet before each run</label>
+      </section>
+    </div>
+    <section class="card">
+      <div class="row"><button id="save">Save settings</button><button id="reset" class="ghost">Discard changes</button><span id="dirty"></span></div>
+    </section>
+  </section>
+
+  <!-- ===================== DATA ===================== -->
+  <section class="view" data-view="data" hidden>
+    <section class="card">
+      <h2>Data</h2>
+      <div class="row" id="tools-test">
+        <button class="ghost" id="copy">Copy production data into test</button>
+        <button class="ghost" id="clear">Clear test tracker &amp; logs</button>
+      </div>
+      <div class="row" id="tools-prod"><button class="ghost" id="sync">Sync Google Sheet now</button></div>
+      <p class="small muted" id="datahelp"></p>
+    </section>
+    <section class="card">
+      <div class="row">
+        <h2 style="margin-right:auto">Tables</h2>
+        <div class="seg" role="group" aria-label="Table" id="tabs">
+          <button data-table="Line_Tracker" aria-pressed="true">Line tracker</button>
+          <button data-table="Alert_Log">Alert log</button>
+          <button data-table="Call_Tasks">Call tasks</button>
+          <button data-table="Meeting_Tasks">Meeting tasks</button>
+        </div>
+      </div>
+      <div class="tablewrap"><table id="table"></table></div>
+    </section>
+  </section>
+</main>
+
+<dialog id="dlg"><div class="row"><h2 id="dlgtitle" style="margin-right:auto"></h2><button class="ghost" onclick="dlg.close()">Close</button></div><div id="dlgbody"></div></dialog>
+<div id="toast" role="status"></div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const UNITS = [["minutes", 1], ["hours", 60], ["days", 1440]];
+const STEP_NAMES = ["Scenario 1", "Scenario 2", "Scenario 3", "Meeting"];
+const STEPS = [
+  { name: "Scenario 1", day: "Day 0", title: "Vendor alert", who: "Vendor planner + coordinator get a WhatsApp with the overdue PO lines." },
+  { name: "Scenario 2", day: "Day 1", title: "Management escalation", who: "Vendor management gets a WhatsApp: no response, please intervene." },
+  { name: "Scenario 3", day: "Day 2", title: "Buyer call task", who: "The buyer gets a WhatsApp to call the Scenario 3 number; a Call_Tasks row is added." },
+  { name: "Meeting", day: "Day 3", title: "Management meeting", who: "Buyer + SCM HOD get a WhatsApp; a Meeting_Tasks row is added." },
+];
+let env = "test", view = "overview", state = null, table = "Line_Tracker", dirty = false, timer = null, locked = false, code = "";
+let vendors = [], vendorsEnv = null, vendorsAt = 0, selected = {}, skew = 0, autoStopSent = false;
+try { env = localStorage.getItem("env") || "test"; view = localStorage.getItem("view") || "overview"; selected = JSON.parse(localStorage.getItem("selected") || "{}"); } catch (e) {}
+// ADMIN_PASSWORD falls back to the access code, so the code typed on the call page is tried first
+try { code = sessionStorage.getItem("admin_code") || sessionStorage.getItem("access_code") || ""; } catch (e) {}
+
+// ---------- helpers ----------
+function toast(msg, ms = 3500) { const t = $("toast"); t.textContent = msg; t.style.display = "block"; clearTimeout(t._h); t._h = setTimeout(() => t.style.display = "none", ms); }
+function esc(s) { return String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
+function fmtTime(iso, withDate = true) {
+  if (!iso) return "-";
+  const o = { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit", second: "2-digit" };
+  if (withDate) Object.assign(o, { day: "2-digit", month: "short" });
+  return new Date(iso).toLocaleString("en-IN", o);
+}
+function fmtWait(min) { if (min == null) return ""; const [v, u] = minutesToUnit(min); return `${+v.toFixed(2)} ${v === 1 ? u.slice(0, -1) : u}`; }
+function minutesToUnit(m) { for (const [u, f] of [...UNITS].reverse()) if (m >= f && Number.isInteger(+(m / f).toFixed(6))) return [m / f, u]; return [m, "minutes"]; }
+function stepName(level) { return level == null ? "Not started" : STEP_NAMES[level]; }
+function serverNow() { return Date.now() + skew; }
+function countdown(iso) {
+  const ms = new Date(iso).getTime() - serverNow();
+  if (ms <= 0) return null;
+  const s = Math.ceil(ms / 1000), h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+  return (h ? h + "h " : "") + (h || m ? m + "m " : "") + sec + "s";
+}
+
+class Locked extends Error {}
+async function api(path, opts = {}) {
+  const res = await fetch("/admin/api" + path, { ...opts, headers: { "Content-Type": "application/json", "X-Admin-Code": code } });
+  const data = await res.json().catch(() => ({}));
+  if (res.status === 401 || res.status === 403 || res.status === 503) { showGate(res.status, data.error); throw new Locked(data.error); }
+  if (!res.ok) throw new Error(data.error || res.statusText);
+  return data;
+}
+function fail(e) { if (!(e instanceof Locked)) toast(e.message, 6000); }
+// Disables the button while its request runs, so a double click cannot start two runs or two saves
+function guard(fn) {
+  return async function (ev) {
+    const btn = ev?.currentTarget;
+    if (btn?.dataset.inflight) return;
+    if (btn) { btn.dataset.inflight = "1"; btn.disabled = true; }
+    try { await fn.call(this, ev); } finally { if (btn) { delete btn.dataset.inflight; btn.disabled = false; } if (state) render(state); }
+  };
+}
+
+// 401: ask for the admin code. 403 (no admin code on the server): explain. 503 (database down): explain and retry.
+let retryTimer = null;
+function showGate(status, message) {
+  locked = true; clearTimeout(timer); clearTimeout(retryTimer);
+  if (status === 503) retryTimer = setTimeout(() => { locked = false; $("gate").hidden = true; load(); }, 10000);
+  $("app").hidden = true; $("gate").hidden = false;
+  const ask = status === 401;
+  $("gateCodeWrap").hidden = !ask; $("gateBtn").textContent = ask ? "Open admin" : "Try again";
+  $("gateCode").required = ask;
+  $("gateMsg").className = "small" + (ask && !code ? "" : " err");
+  $("gateMsg").textContent = ask && !code ? "Enter the admin code (ADMIN_PASSWORD, or the access code if that is not set)."
+    : (message || "Admin unavailable.") + (status === 503 ? " Trying again every 10 seconds." : "");
+  if (ask) $("gateCode").focus();
+}
+$("gateForm").onsubmit = (e) => {
+  e.preventDefault();
+  if (!$("gateCodeWrap").hidden) { code = $("gateCode").value; try { sessionStorage.setItem("admin_code", code); } catch (err) {} }
+  locked = false; $("gate").hidden = true;
+  setEnv(env, true);
+};
+
+// ---------- environment and sections ----------
+for (let i = 0; i < 3; i++) $("iu" + i).innerHTML = UNITS.map(([u]) => `<option>${u}</option>`).join("");
+
+function setEnv(e, force = false) {
+  if (!force && dirty && !confirm("Discard unsaved settings?")) return;
+  env = e; dirty = false; vendors = []; vendorsAt = 0;
+  try { localStorage.setItem("env", e); } catch (err) {}
+  document.documentElement.style.setProperty("--envc", e === "prod" ? "var(--prod)" : "var(--test)");
+  document.querySelectorAll(".titlebar .seg button").forEach((b) => b.setAttribute("aria-pressed", b.dataset.env === e));
+  $("envtag").textContent = e === "prod" ? "PRODUCTION" : "TEST";
+  $("tools-test").hidden = e !== "test"; $("tools-prod").hidden = e !== "prod"; $("refresh_wrap").hidden = e !== "prod";
+  $("testProd").hidden = e === "test"; $("testBody").hidden = e !== "test";
+  $("datahelp").textContent = e === "test"
+    ? "Test uses its own database (pending_po_test). Copy production data in, then change test rows in pgAdmin (schema sheets), e.g. OD days or phone numbers, and run as often as you like."
+    : "Production data comes from the Google Sheet (mirrored into the pending_po database).";
+  $("trace").innerHTML = `<section class="card"><p class="muted">Pick a vendor to see where it is in Scenario 1 → 2 → 3 → meeting.</p></section>`;
+  load(true);
+}
+
+function setView(v) {
+  view = v;
+  try { localStorage.setItem("view", v); } catch (e) {}
+  document.querySelectorAll(".views button").forEach((b) => b.setAttribute("aria-selected", b.dataset.view === v));
+  document.querySelectorAll("main > .view").forEach((s) => s.hidden = s.dataset.view !== v);
+  if (state) refreshView();
+}
+
+// ---------- main loop ----------
+async function load(withSettings = false) {
+  try {
+    const t0 = Date.now(), st = await api(`/${env}/state`);
+    if (st.now) skew = new Date(st.now).getTime() - (t0 + Date.now()) / 2;
+    $("app").hidden = false;
+    render(st);
+    if (withSettings || !dirty) fillSettings(st.settings);
+    await refreshView();
+  } catch (e) { if (e instanceof Locked) return; toast("Could not load: " + e.message, 6000); }
+  clearTimeout(timer);
+  const fast = state?.busy || (testActive() && view === "test");
+  if (!locked) timer = setTimeout(load, fast ? 3000 : 15000);
+}
+
+async function refreshView() {
+  if (view === "vendors") { await loadVendors(); if (selected[env]) await loadTrace(selected[env], $("trace")); }
+  else if (view === "test" && env === "test") { await loadVendors(); renderTest(); const vt = state.settings.vendor_test; if (vt) await loadTrace(vt.vendor_code, $("testTrace"), true); }
+  else if (view === "data") await loadTable();
+}
+
+// ---------- overview ----------
+function render(st) {
+  state = st;
+  const s = st.stats;
+  $("dbname").textContent = "database " + s.database;
+  const open = s.tracker.filter((t) => !/CLEARED/i.test(t.status));
+  const cards = [
+    ["Pending PO lines", s.pending_lines ?? "-"], ["Vendors with pending lines", s.pending_vendors ?? "-"],
+    ["Lines being escalated", open.reduce((a, t) => a + t.n, 0)], ["Messages logged", s.alert_log_rows],
+    ["PO data as of", fmtTime(s.master_synced_at)],
+  ];
+  $("stats").innerHTML = cards.map(([k, v]) => `<div class="stat"><span class="small muted">${k}</span><b>${esc(v)}</b></div>`).join("");
+
+  const iv = st.settings.intervals_minutes;
+  $("howflow").innerHTML = STEPS.map((p, i) => {
+    const n = open.filter((t) => String(t.level) === String(i)).reduce((a, t) => a + t.n, 0);
+    return `<li class="step"><div class="head"><span class="dot">${i + 1}</span><div><div class="sname">${p.name}</div><div class="day">${p.day}</div></div></div>
+      <div class="stitle">${p.title}</div><div class="small muted">${p.who}</div>
+      ${i ? `<div class="wait">Starts ${fmtWait(iv[i - 1])} after ${STEP_NAMES[i - 1]}</div>` : `<div class="wait">Starts on the first run</div>`}
+      <div class="when">${n} line(s) here now</div></li>`;
+  }).join("");
+
+  $("busy").hidden = !st.busy;
+  document.querySelectorAll("[data-run]").forEach((b) => b.disabled = st.busy || !!b.dataset.inflight);
+  $("tNext").disabled = st.busy || !!$("tNext").dataset.inflight;
+  renderHealth(st);
+  const set = st.settings;
+  const autoText = !set.auto_enabled ? "Automatic runs are <b>off</b>."
+    : `Automatic <b>${set.auto_mode === "live" ? "live" : "dry"}</b> runs ${set.schedule_type === "daily" ? "every day at " + esc(set.daily_time) + " IST" : "every " + fmtWait(set.every_minutes)}.`
+      + (st.scheduler ? ` Next: <b>${fmtTime(st.next_auto_run)}</b>.` : ` <span class="pill warn">scheduler not running</span>`);
+  $("autoSummary").innerHTML = autoText + `<br>Pilot mode: <b>${set.pilot_mode ? "on" : "off"}</b>` + (set.pilot_mode ? ` (vendors ${esc(set.pilot_vendor_codes || "none")}, all messages to ${esc(set.pilot_mobile || "no number set")})` : " (messages go to real numbers)");
+  $("nextrun").textContent = !set.auto_enabled ? "Automatic runs are off."
+    : st.scheduler ? "Next automatic run: " + fmtTime(st.next_auto_run)
+    : "Automatic runs are on, but the scheduler is not running in this server (start it with python -m po_followup admin, or set FOLLOWUP_SCHEDULER=true).";
+
+  const r = st.runs[0];
+  $("lastrun").innerHTML = r ? `Last run #${r.id} (${r.trigger}, ${r.mode}): <span class="pill ${r.status}">${r.status}</span> ${esc(summaryText(r))}` : "No runs yet.";
+  $("runs").innerHTML = "<tr><th>#</th><th>Started</th><th>Trigger</th><th>Mode</th><th>Status</th><th>Vendor steps</th><th>Messages</th><th>By status</th><th>Cleared</th><th>Error</th></tr>" +
+    (st.runs.length ? st.runs.map((r) => `<tr class="click" data-id="${r.id}"><td>${r.id}</td><td>${fmtTime(r.started_at)}</td><td>${r.trigger}</td><td>${r.mode}</td>
+      <td><span class="pill ${r.status}">${r.status}</span></td><td>${r.summary?.vendor_groups ?? ""}</td><td>${r.summary?.messages ?? ""}</td>
+      <td>${esc(Object.entries(r.summary?.by_status || {}).map(([k, v]) => k + " " + v).join(", "))}</td><td>${r.summary?.cleared_lines ?? ""}</td>
+      <td class="wrap">${esc(r.error || "")}</td></tr>`).join("") : `<tr><td colspan="10" class="muted">No runs yet.</td></tr>`);
+  document.querySelectorAll("#runs tr.click").forEach((tr) => tr.onclick = () => showRun(tr.dataset.id));
+}
+function renderHealth(st) {
+  const h = st.health, set = st.settings, issues = [];
+  const beatAge = h.scheduler_heartbeat ? (serverNow() - new Date(h.scheduler_heartbeat).getTime()) / 1000 : null;
+  let sched;
+  if (!st.scheduler) {
+    sched = '<span class="pill warn">not running in this server</span>';
+    if (set.auto_enabled) issues.push("Automatic runs are on, but the scheduler is not running in this server, so nothing runs by itself. Start the server without FOLLOWUP_SCHEDULER=false.");
+  } else if (beatAge != null && beatAge > 60) {
+    sched = `<span class="pill failed">stalled</span> last check ${Math.round(beatAge)}s ago`;
+    issues.push(`The scheduler has not checked for ${Math.round(beatAge)} seconds. Restart the server.`);
+  } else sched = `<span class="pill ok">running</span> ${beatAge != null ? `last check ${Math.round(beatAge)}s ago` : "starting"}`;
+  const la = h.last_auto;
+  if (h.failed_streak) issues.push(`The last ${h.failed_streak} automatic run(s) failed: ${la?.error || "see Run history"}. A failed daily run is retried up to 3 times, 10 minutes apart.`);
+  for (const r of h.stuck_runs) issues.push(`Run #${r.id} has been running since ${fmtTime(r.started_at)}. It may be stuck on Google Sheets, WhatsApp or the database.`);
+  $("health").innerHTML = `
+    <dt>Scheduler</dt><dd>${sched}</dd>
+    <dt>Last automatic run</dt><dd>${la ? `#${la.id} ${fmtTime(la.started_at)} <span class="pill ${esc(la.status)}">${esc(la.status)}</span>` : "none yet"}
+      ${h.failed_streak ? ` <span class="pill failed">${h.failed_streak} failed in a row</span>` : ""}</dd>
+    <dt>Failure alerts</dt><dd>${h.failure_alerts ? "on: a failed automatic run is sent by WhatsApp to FOLLOWUP_ALERT_MOBILE" : '<span class="muted">off (set FOLLOWUP_ALERT_MOBILE to get a WhatsApp when an automatic run fails)</span>'}</dd>
+    <dt>Duplicate protection</dt><dd>one run at a time per environment, across all server processes</dd>`;
+  $("alerts").innerHTML = issues.length ? "<b>Needs attention</b><br>" + issues.map(esc).join("<br>") : "";
+  $("alerts").hidden = !issues.length;
+}
+
+function summaryText(r) { const s = r.summary; if (!s) return r.error ? "- " + r.error.slice(0, 120) : ""; return `- ${s.vendor_groups} vendor step(s), ${s.messages} message(s), ${s.cleared_lines} cleared`; }
+
+async function showRun(id) {
+  try {
+    const r = await api(`/${env}/runs/${id}`);
+    $("dlgtitle").textContent = `Run #${r.id} - ${r.trigger} ${r.mode} - ${r.status}`;
+    const alerts = r.report?.alerts || [];
+    $("dlgbody").innerHTML = (r.error ? `<p style="color:var(--bad)">${esc(r.error)}</p>` : "") +
+      (alerts.length ? `<div class="tablewrap"><table><tr><th>Step</th><th>Vendor</th><th>Recipient</th><th>Mobile</th><th>Lines</th><th>Status</th></tr>` +
+        alerts.map((a) => `<tr><td>${stepName(a.level)}</td><td>${esc(a.vendor)}</td><td>${esc(a.role)}</td><td>${esc(a.mobile)}</td><td>${a.lines}</td><td><span class="pill ${esc(a.status)}">${esc(a.status)}</span></td></tr>`).join("") + "</table></div>"
+        : "<p>No messages in this run (no vendor was due for its next step).</p>") +
+      (r.report?.sheet_writes?.length ? `<p class="small muted" style="margin-top:8px">${r.report.sheet_writes.map(esc).join("<br>")}</p>` : "");
+    $("dlg").showModal();
+  } catch (e) { fail(e); }
+}
+
+// ---------- vendor list ----------
+async function loadVendors(force = false) {
+  if (!force && vendorsEnv === env && Date.now() - vendorsAt < 30000) return renderVendorList();
+  vendors = await api(`/${env}/vendors`); vendorsEnv = env; vendorsAt = Date.now();
+  renderVendorList();
+  $("tVendors").innerHTML = vendors.filter((v) => v.pending_lines).map((v) => `<option value="${esc(v.code)}">${esc(v.name)} - ${v.pending_lines} pending line(s)</option>`).join("");
+}
+
+function renderVendorList() {
+  const q = $("vsearch").value.trim().toLowerCase();
+  const list = vendors.filter((v) => !q || v.name.toLowerCase().includes(q) || v.code.toLowerCase().includes(q));
+  const started = vendors.filter((v) => v.level != null).length;
+  $("vcount").textContent = `${vendors.length} vendor(s), ${started} in escalation` + (q ? `, ${list.length} match` : "");
+  $("vlist").innerHTML = list.slice(0, 400).map((v) => `<li><button data-code="${esc(v.code)}" aria-current="${v.code === selected[env]}">
+      <span class="vname">${esc(v.name)}</span>
+      <span class="row small"><span class="muted">${esc(v.code)}</span>
+        <span class="pill ${v.level != null ? "running" : ""}">${stepName(v.level)}</span>
+        <span class="muted">${v.pending_lines} line(s), max ${v.max_od}d late</span>${v.in_pilot ? '<span class="pill ok">pilot</span>' : ""}</span>
+    </button></li>`).join("") || `<li class="small muted" style="padding:10px">No vendors.</li>`;
+  document.querySelectorAll("#vlist button").forEach((b) => b.onclick = () => {
+    selected[env] = b.dataset.code;
+    try { localStorage.setItem("selected", JSON.stringify(selected)); } catch (e) {}
+    renderVendorList(); loadTrace(b.dataset.code, $("trace"));
+  });
+}
+$("vsearch").oninput = renderVendorList;
+
+// ---------- vendor trace (shared by Vendor trace and Test a vendor) ----------
+async function loadTrace(vcode, el, isTest = false) {
+  try {
+    const t = await api(`/${env}/vendors/${encodeURIComponent(vcode)}`);
+    skew = new Date(t.now).getTime() - Date.now();
+    renderTrace(t, el);
+    if (isTest) maybeFinishTest(t);
+  } catch (e) {
+    if (e instanceof Locked) return;
+    el.innerHTML = `<section class="card"><p class="muted">${esc(e.message)}</p></section>`;
+  }
+}
+
+function sendsTo(level, c) {
+  const n = (x) => esc(x || "no number in the data");
+  if (level === 0) return `Scenario 1 number: <b>${n(c.scenario1)}</b>`;
+  if (level === 1) return `Scenario 2 number: <b>${n(c.scenario2)}</b>`;
+  if (level === 2) return `Buyer: <b>${n(c.buyer_mobile)}</b>, asked to call <b>${n(c.scenario3)}</b> (Scenario 3)`;
+  return `Buyer <b>${n(c.buyer_mobile)}</b> + SCM HOD <b>${n(c.scm_hod_mobile)}</b>`;
+}
+
+function stepWhen(st, t) {
+  if (st.state === "done") return `✓ Done ${st.done_at ? fmtTime(st.done_at) : ""}`;
+  if (st.state === "later") return `Waiting for ${STEP_NAMES[st.level - 1]}`;
+  if (!t.pending_lines) return "Not sent: no pending lines";
+  if (st.due_at && countdown(st.due_at)) return `Due in <span data-due="${st.due_at}">${countdown(st.due_at)}</span>`;
+  return "Due now: goes out on the next run";
+}
+
+function renderTrace(t, el) {
+  const c = t.contacts, set = state.settings;
+  const done = t.steps.every((s) => s.state === "done");
+  const pilotNote = set.pilot_mode
+    ? (t.in_pilot ? `Pilot mode: every message for this vendor actually goes to <b>${esc(set.pilot_mobile || "no pilot number set")}</b>.` : "Pilot mode is on and this vendor is not a pilot vendor: runs skip it.")
+    : "Pilot mode is off: messages go to the real numbers below.";
+  const latest = [...t.steps].reverse().find((s) => s.messages.length);
+  el.innerHTML = `
+    <section class="card">
+      <h2>${esc(t.name)} <span class="muted small">${esc(t.code)}</span>
+        <span class="pill ${t.level != null ? "running" : ""}">${done ? "All steps done" : "At: " + stepName(t.level)}</span>
+        ${t.in_pilot ? '<span class="pill ok">pilot vendor</span>' : ""}</h2>
+      <p class="callout ${done ? "ok" : ""}">${esc(t.next_note)}${t.next_auto_run && !done ? ` Next automatic run: <b>${fmtTime(t.next_auto_run, false)}</b>.` : ""}</p>
+      <ol class="flow">${t.steps.map((st) => `
+        <li class="step ${st.state}">
+          <div class="head"><span class="dot">${st.state === "done" ? "✓" : st.level + 1}</span>
+            <div><div class="sname">${st.name}</div><div class="day">${["Day 0", "Day 1", "Day 2", "Day 3"][st.level]}</div></div></div>
+          <div class="stitle">${esc(st.title)}</div>
+          <div class="small">${sendsTo(st.level, c)}</div>
+          ${st.wait_minutes != null ? `<div class="wait">Waits ${fmtWait(st.wait_minutes)} after ${STEP_NAMES[st.level - 1]}</div>` : `<div class="wait">First step</div>`}
+          <div class="when">${stepWhen(st, t)}</div>
+        </li>`).join("")}</ol>
+      <p class="small muted">${pilotNote}</p>
+    </section>
+
+    <section class="card">
+      <h2>Messages</h2>
+      ${t.steps.map((st) => `<details class="msgs" ${st === latest ? "open" : ""}>
+        <summary>${st.name}: ${esc(st.title)} <span class="muted small">(${st.messages.length} message${st.messages.length === 1 ? "" : "s"})</span>
+          ${st.messages[0] ? `<span class="pill ${esc(st.messages[0].status)}">${esc(st.messages[0].status)}</span>` : ""}</summary>
+        ${st.messages.map((m) => `<div class="msg">
+            <div class="row small"><b>${fmtTime(m.at)}</b><span>${esc(m.role)}</span><span class="muted">${esc(m.name)}</span>
+              <span>to ${esc(m.mobile)}</span><span class="pill ${esc(m.status)}">${esc(m.status)}</span></div>
+            ${m.error ? `<div class="small" style="color:var(--bad)">${esc(m.error)}</div>` : ""}
+            <pre>${esc(m.message)}</pre></div>`).join("") || `<p class="small muted" style="margin-top:6px">Nothing sent for this step yet.</p>`}
+      </details>`).join("")}
+    </section>
+
+    <div class="cols">
+      <section class="card">
+        <h2>Numbers used</h2>
+        <dl class="kv">
+          <dt>Scenario 1</dt><dd>${esc(c.scenario1 || "-")}</dd>
+          <dt>Scenario 2</dt><dd>${esc(c.scenario2 || "-")}</dd>
+          <dt>Scenario 3</dt><dd>${esc(c.scenario3 || "-")}</dd>
+          <dt>Buyer</dt><dd>${esc(c.buyer_mobile || "-")}${c.buyer_email ? " · " + esc(c.buyer_email) : ""}</dd>
+          <dt>SCM HOD</dt><dd>${esc(c.scm_hod_mobile || "-")}</dd>
+          <dt>Source</dt><dd>${esc(c.source)}</dd>
+        </dl>
+      </section>
+      <section class="card">
+        <h2>Tasks created</h2>
+        ${taskList("Call task", t.call_tasks, (r) => `${r["Task ID"]}: ${r["Assigned To"]} calls ${r["Vendor Mobile"] || "-"} (${r["Task Status"]})`)}
+        ${taskList("Meeting", t.meeting_tasks, (r) => `${r["Meeting ID"]}: proposed ${r["Proposed Date"]}`)}
+      </section>
+    </div>
+
+    <section class="card">
+      <h2>PO lines <span class="muted small">(${t.lines.length})</span></h2>
+      <div class="tablewrap"><table>
+        <tr><th>Line (PO/item/schedule)</th><th>Description</th><th>Pending</th><th>OD days</th><th>Step reached</th><th>Status</th><th>Last alert</th></tr>
+        ${t.lines.map((l) => `<tr><td>${esc(l.key)}</td><td>${esc(l.desc)}</td><td>${esc(l.pending)}</td><td>${esc(l.od)}</td>
+          <td>${stepName(l.level)}</td><td>${esc(l.status)}</td><td>${l.last_alert_at ? fmtTime(l.last_alert_at) : "-"}</td></tr>`).join("")}
+      </table></div>
+    </section>`;
+}
+function taskList(label, rows, fmt) {
+  return rows.length ? rows.map((r) => `<p class="small"><b>${label}</b> ${esc(fmt(r))}</p>`).join("") : `<p class="small muted">No ${label.toLowerCase()} yet.</p>`;
+}
+
+// Countdowns tick every second without reloading
+setInterval(() => document.querySelectorAll("[data-due]").forEach((s) => { s.textContent = countdown(s.dataset.due) || "0s"; }), 1000);
+
+// ---------- test a vendor ----------
+function testActive() { const vt = state?.settings?.vendor_test; return env === "test" && vt && !vt.stopped_at; }
+
+function renderTest() {
+  const vt = state.settings.vendor_test, active = testActive();
+  const warn = [];
+  if (!state.whatsapp_ready) warn.push("WhatsApp (UltraMsg) is not configured on this server, so only a dry run is possible.");
+  if (!state.scheduler) warn.push("The scheduler is not running in this server, so the next scenarios will not run by themselves: use \"Run next step now\" after each wait, or start the admin with python -m po_followup admin.");
+  $("tWarn").innerHTML = warn.map(esc).join("<br>"); $("tWarn").hidden = !warn.length;
+  $("tMode").querySelector('[value="live"]').disabled = !state.whatsapp_ready;
+  if (!state.whatsapp_ready) $("tMode").value = "dry";
+  if (vt && !$("tVendor").value) {
+    $("tVendor").value = vt.vendor_code; $("tMobile").value = vt.mobile; $("tMinutes").value = vt.minutes;
+    if (state.whatsapp_ready || vt.mode === "dry") $("tMode").value = vt.mode;
+    $("tAuto").checked = vt.auto;
+  }
+  $("testActive").hidden = !vt;
+  if (vt) {
+    $("tStatus").textContent = active ? (state.settings.auto_enabled ? "running" : "manual steps") : "stopped";
+    $("tStatus").className = "pill " + (active ? "running" : "");
+    $("tInfo").innerHTML = `<b>${esc(vt.vendor_name)}</b> (${esc(vt.vendor_code)}) · ${vt.mode === "live" ? "real WhatsApp" : "dry run"} to <b>${esc(vt.mobile)}</b>
+      · ${fmtWait(vt.minutes)} between scenarios · started ${fmtTime(vt.started_at)}${vt.stopped_at ? " · stopped " + fmtTime(vt.stopped_at) : ""}`;
+    $("tStop").hidden = !(active && state.settings.auto_enabled);
+    $("tReason").textContent = vt.stop_reason || ""; $("tReason").hidden = !vt.stop_reason;
+  } else $("testTrace").innerHTML = "";
+}
+
+async function startTest(body) {
+  if (body.mode === "live" && !confirm(`Send real WhatsApp messages to ${body.mobile} for every scenario of vendor ${body.vendor_code}?`)) return;
+  $("tMsg").textContent = "Starting…";
+  try {
+    const r = await api("/test/vendor-test", { method: "POST", body: JSON.stringify(body) });
+    autoStopSent = false;
+    $("tMsg").textContent = "";
+    toast(`Test started: Scenario 1 is being sent (run #${r.run_id})`);
+    vendorsAt = 0; await load(true);
+  } catch (e) { $("tMsg").textContent = ""; fail(e); }
+}
+function formBody() {
+  return { vendor_code: $("tVendor").value.trim(), mobile: $("tMobile").value.trim(), minutes: Number($("tMinutes").value),
+           mode: $("tMode").value, auto: $("tAuto").checked };
+}
+$("tStart").onclick = guard(async () => {
+  const b = formBody();
+  if (!b.vendor_code) return toast("Pick a vendor first");
+  if (!b.mobile) return toast("Enter your WhatsApp number");
+  await startTest(b);
+});
+$("tAgain").onclick = guard(async () => { const vt = state.settings.vendor_test; await startTest({ vendor_code: vt.vendor_code, mobile: vt.mobile, minutes: vt.minutes, mode: vt.mode, auto: vt.auto }); });
+$("tNext").onclick = guard(async () => {
+  const vt = state.settings.vendor_test;
+  try { const r = await api("/test/run", { method: "POST", body: JSON.stringify({ mode: vt.mode }) }); toast(`Run #${r.run_id} started. Only steps whose wait is over are sent.`); await load(); }
+  catch (e) { fail(e); }
+});
+$("tStop").onclick = guard(async () => { try { await api("/test/vendor-test/stop", { method: "POST" }); toast("Automatic runs stopped"); await load(true); } catch (e) { fail(e); } });
+$("toTest").onclick = () => setEnv("test");
+
+// When the vendor reaches the meeting step the test is complete: stop the every-minute runs
+async function maybeFinishTest(t) {
+  if (!t.steps.every((s) => s.state === "done") || !testActive() || !state.settings.auto_enabled || autoStopSent) return;
+  autoStopSent = true;
+  try { await api("/test/vendor-test/stop", { method: "POST" }); toast("Test complete: all scenarios done. Automatic runs stopped.", 6000); load(true); } catch (e) { fail(e); }
+}
+
+// ---------- settings ----------
+function fillSettings(s) {
+  $("auto_enabled").checked = s.auto_enabled; $("auto_mode").value = s.auto_mode; $("schedule_type").value = s.schedule_type;
+  $("daily_time").value = s.daily_time; $("every_minutes").value = s.every_minutes;
+  s.intervals_minutes.forEach((m, i) => { const [v, u] = minutesToUnit(m); $("iv" + i).value = v; $("iu" + i).value = u; });
+  for (const k of ["pilot_mobile", "pilot_vendor_codes", "scm_hod_mobile", "max_lines_per_message"]) $(k).value = s[k] ?? "";
+  $("pilot_mode").checked = s.pilot_mode; $("refresh_from_sheet").checked = s.refresh_from_sheet;
+  showSchedule(); setDirty(false);
+}
+function readSettings() {
+  return {
+    auto_enabled: $("auto_enabled").checked, auto_mode: $("auto_mode").value, schedule_type: $("schedule_type").value,
+    daily_time: $("daily_time").value, every_minutes: Number($("every_minutes").value),
+    intervals_minutes: [0, 1, 2].map((i) => Number($("iv" + i).value) * UNITS.find(([u]) => u === $("iu" + i).value)[1]),
+    pilot_mode: $("pilot_mode").checked, pilot_mobile: $("pilot_mobile").value.trim(),
+    pilot_vendor_codes: $("pilot_vendor_codes").value.trim(), scm_hod_mobile: $("scm_hod_mobile").value.trim(),
+    max_lines_per_message: Number($("max_lines_per_message").value), refresh_from_sheet: $("refresh_from_sheet").checked,
+  };
+}
+function showSchedule() { const d = $("schedule_type").value === "daily"; $("daily_wrap").hidden = !d; $("every_wrap").hidden = d; }
+function setDirty(v) { dirty = v; $("dirty").textContent = v ? "Unsaved changes" : ""; $("dirty").className = v ? "dirty" : ""; }
+document.querySelectorAll('[data-view="settings"] input, [data-view="settings"] select').forEach((el) => el.addEventListener("input", () => { setDirty(true); showSchedule(); }));
+
+$("save").onclick = guard(async () => {
+  const body = readSettings();
+  if (env === "prod" && body.auto_enabled && body.auto_mode === "live" && !(state.settings.auto_enabled && state.settings.auto_mode === "live")) {
+    if (prompt(`Automatic LIVE sending in PRODUCTION.\nPilot mode: ${body.pilot_mode ? "ON" : "OFF (real vendors!)"}\n\nType LIVE to enable:`) !== "LIVE") return;
+    body.confirm = "LIVE";
+  }
+  try { await api(`/${env}/settings`, { method: "PUT", body: JSON.stringify(body) }); toast("Settings saved"); await load(true); } catch (e) { fail(e); }
+});
+$("reset").onclick = () => fillSettings(state.settings);
+
+// ---------- run now ----------
+document.querySelectorAll("[data-run]").forEach((b) => b.onclick = guard(async () => {
+  const mode = b.dataset.run, body = { mode };
+  if (mode === "live") {
+    const pilot = state.settings.pilot_mode ? `Pilot mode is ON: messages go only to ${state.settings.pilot_mobile || "(no pilot number set!)"}.` : "Pilot mode is OFF: messages go to REAL vendor numbers.";
+    if (env === "prod") {
+      if (prompt(`LIVE PRODUCTION RUN\n${pilot}\nProduction vendors will move to their next step.\n\nType LIVE to continue:`) !== "LIVE") return;
+      body.confirm = "LIVE";
+    } else if (!confirm(`Live test run. ${pilot}\nContinue?`)) return;
+  }
+  if (dirty && !confirm("You have unsaved settings; this run uses the saved ones. Run anyway?")) return;
+  try { const r = await api(`/${env}/run`, { method: "POST", body: JSON.stringify(body) }); toast(`Run #${r.run_id} started`); await load(); } catch (e) { fail(e); }
+}));
+
+// ---------- data ----------
+async function loadTable() {
+  const rows = await api(`/${env}/table/${table}?limit=200`);
+  if (!rows.length) { $("table").innerHTML = "<tr><td class='muted'>No rows.</td></tr>"; return; }
+  const cols = Object.keys(rows[0]);
+  $("table").innerHTML = "<tr>" + cols.map((c) => `<th>${esc(c)}</th>`).join("") + "</tr>" +
+    rows.map((r) => "<tr>" + cols.map((c) => `<td class="${c === "Message" ? "wrap" : ""}">${esc(r[c])}</td>`).join("") + "</tr>").join("");
+}
+document.querySelectorAll("#tabs button").forEach((b) => b.onclick = () => {
+  table = b.dataset.table; document.querySelectorAll("#tabs button").forEach((x) => x.setAttribute("aria-pressed", x === b)); loadTable().catch(fail);
+});
+async function tool(path, msg, question) {
+  if (question && !confirm(question)) return;
+  try { const r = await api(path, { method: "POST" }); toast(msg + (r.copied ? ": " + JSON.stringify(r.copied) : "")); vendorsAt = 0; await load(); } catch (e) { fail(e); }
+}
+$("copy").onclick = guard(() => tool("/test/copy-from-prod", "Copied production data into test", "Replace test Master/Phone_Master with production data and clear the test tracker, logs and run history?"));
+$("clear").onclick = guard(() => tool("/test/clear", "Test tracker, logs and run history cleared", "Clear the test tracker, alert log, tasks and run history?"));
+$("sync").onclick = guard(() => tool("/prod/sync-sheet", "Google Sheet synced"));
+
+// ---------- start ----------
+document.querySelectorAll(".titlebar .seg button").forEach((b) => b.onclick = () => setEnv(b.dataset.env));
+document.querySelectorAll(".views button").forEach((b) => b.onclick = () => setView(b.dataset.view));
+document.querySelectorAll("[data-goto]").forEach((b) => b.onclick = () => setView(b.dataset.goto));
+setView(view);
+setEnv(env, true);
+</script>
+</body>
+</html>

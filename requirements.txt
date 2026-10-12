@@ -6,3 +6,7 @@ numpy>=2.5.3
 teler>=1.0.0
 truststore>=0.10.4
 httpx>=0.27
+gspread>=6.1
+google-auth>=2.32
+tzdata>=2024.1
+langsmith>=0.4

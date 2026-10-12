@@ -49,9 +49,21 @@
   #callResult { margin: 0; }
   #callResult.ok { color: var(--ok); font-weight: 600; }
   #callResult.err { color: var(--stop); font-weight: 600; }
+  .topnav { max-width: 720px; margin: -8px auto 16px; display: flex; flex-wrap: wrap; gap: 4px 16px; align-items: center; font-size: .9rem; }
+  .topnav a { color: var(--muted); text-decoration: none; font-weight: 600; padding: 2px 0; border-bottom: 2px solid transparent; }
+  .topnav a:hover, .topnav a[aria-current="page"] { color: var(--fg); border-bottom-color: var(--accent); }
+  .topnav .brand { color: var(--fg); margin-right: 8px; }
+  .notice { margin: 0; padding: 8px 12px; border-radius: 8px; border: 1px solid var(--line); color: var(--stop); font-size: .9rem; }
 </style>
 </head>
 <body>
+<nav class="topnav" aria-label="Pages">
+  <a class="brand" href="/">PO Agent</a>
+  <a href="/?tab=phone" id="nav-phone">Normal call</a>
+  <a href="/?tab=browser" id="nav-browser">Voice agent</a>
+  <a href="/admin">Follow-up admin</a>
+  <a href="/docs">API docs</a>
+</nav>
 <main>
   <div>
     <h1>PO Voice Agent</h1>
@@ -70,6 +82,7 @@
   <section class="panel" id="panel-phone" role="tabpanel" aria-labelledby="tab-phone">
     <div class="card">
       <p class="sub">The agent rings this phone number from your FreJun number and runs the PO follow-up call.</p>
+      <p class="notice" id="phoneOff" hidden>Phone calls are not configured on this server (GEMINI_API_KEY, TELER_API_KEY, FREJUN_PHONE_NUMBER).</p>
       <form id="callForm">
         <label>Phone number
           <input id="to" type="tel" placeholder="+919876543210" autocomplete="tel" required>
@@ -83,6 +96,7 @@
 
   <section class="panel" id="panel-browser" role="tabpanel" aria-labelledby="tab-browser" hidden>
   <p class="sub">Talk to the agent with your microphone. No phone call is placed. You play the vendor.</p>
+  <p class="notice" id="agentOff" hidden>The voice agent is not configured on this server (GEMINI_API_KEY).</p>
   <div class="card">
     <div class="controls">
       <button id="start">Start test call</button>
@@ -145,7 +159,7 @@ function stopPlayback() {
   playing = []; nextPlayTime = 0;
 }
 
-// Mic capture: 16 kHz mono, sent as PCM16 every ~100 ms
+// Mic capture: 16 kHz mono, sent as PCM16 every 40 ms (small frames = the agent hears the end of speech sooner)
 const workletCode = `
 class Mic extends AudioWorkletProcessor {
   constructor() { super(); this.buf = []; }
@@ -153,7 +167,7 @@ class Mic extends AudioWorkletProcessor {
     const ch = inputs[0][0];
     if (ch) {
       this.buf.push(...ch);
-      if (this.buf.length >= 1600) {
+      if (this.buf.length >= 640) {
         const pcm = new Int16Array(this.buf.length);
         let peak = 0;
         for (let i = 0; i < this.buf.length; i++) {
@@ -226,18 +240,32 @@ function cleanup() {
 $("start").onclick = start;
 $("stop").onclick = () => ws?.close();
 
-// Tabs
+// Tabs (?tab=phone / ?tab=browser from the top links, /test opens the voice agent)
 function showTab(name) {
   for (const t of ["phone", "browser"]) {
     $("tab-" + t).setAttribute("aria-selected", t === name);
     $("panel-" + t).hidden = t !== name;
+    if (t === name) $("nav-" + t).setAttribute("aria-current", "page"); else $("nav-" + t).removeAttribute("aria-current");
   }
   try { localStorage.setItem("tab", name); } catch (e) {}
 }
 $("tab-phone").onclick = () => showTab("phone");
 $("tab-browser").onclick = () => showTab("browser");
+const wantTab = new URLSearchParams(location.search).get("tab");
 if (location.pathname === "/test") showTab("browser");
-else { try { const t = localStorage.getItem("tab"); if (t) showTab(t); } catch (e) {} }
+else if (wantTab === "phone" || wantTab === "browser") showTab(wantTab);
+else { let t = "phone"; try { t = localStorage.getItem("tab") || t; } catch (e) {} showTab(t); }
+
+// The access code is kept for this browser tab, so the admin page can use it too
+try { $("password").value = sessionStorage.getItem("access_code") || ""; } catch (e) {}
+$("password").addEventListener("input", () => { try { sessionStorage.setItem("access_code", $("password").value); } catch (e) {} });
+
+// Explain features the server has switched off
+fetch("/api/status").then((r) => r.json()).then((st) => {
+  $("phoneOff").hidden = st.phone_calls; $("callBtn").disabled = !st.phone_calls;
+  $("agentOff").hidden = st.voice_agent; $("start").disabled = !st.voice_agent;
+  if (!st.access_code_required) $("password").placeholder = "Not required on this server";
+}).catch(() => {});
 
 // Normal call: ask the server to have the agent ring a phone
 try { $("to").value = localStorage.getItem("to") || ""; } catch (e) {}

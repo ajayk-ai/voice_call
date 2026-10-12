@@ -10,16 +10,19 @@ from contextlib import suppress
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
+from monitoring.tracing import SessionTrace
+
 from ..bridge import new_session_id, run_bridge, safe_close
-from ..config import GEMINI_MODEL
+from ..config import GEMINI_MODEL, GEMINI_VOICE
 from ..gemini import LIVE_CONFIG, gemini_client, pcm16k, receive_turns
 from ..prompts import GREETING_TRIGGER
 from ..security import check_password
+from ..turns import TurnRecorder
 
 log = logging.getLogger("voice_agent.browser")
 router = APIRouter()
 
-# Largest mic frame accepted from the browser (the page sends ~3.2 KB every 100 ms)
+# Largest mic frame accepted from the browser (the page sends ~1.3 KB every 40 ms)
 MAX_BROWSER_FRAME_BYTES = 64 * 1024
 # Websocket close code for a wrong access code
 WS_CLOSE_UNAUTHORIZED = 4401
@@ -54,8 +57,16 @@ async def test_ws(browser_ws: WebSocket):
         return
 
     log.info("[%s] browser session started", sid)
+    trace = SessionTrace(
+        "browser_session",
+        inputs={"greeting": GREETING_TRIGGER},
+        metadata={"session_id": sid, "model": GEMINI_MODEL, "voice": GEMINI_VOICE, "channel": "browser"},
+        tags=["voice-agent", "browser"],
+    )
+    recorder = TurnRecorder(trace)
+    error = None
     try:
-        async with gemini_client.aio.live.connect(model=GEMINI_MODEL, config=LIVE_CONFIG) as session:
+        async with gemini_client().aio.live.connect(model=GEMINI_MODEL, config=LIVE_CONFIG) as session:
             await send_json({"type": "ready"})
             await session.send_realtime_input(text=GREETING_TRIGGER)
 
@@ -76,6 +87,8 @@ async def test_ws(browser_ws: WebSocket):
                 async for response in receive_turns(session):
                     if response.data:
                         await browser_ws.send_bytes(response.data)
+                    if recorder.observe(response) and recorder.last_reply_ms is not None:
+                        log.info("[%s] agent replied after %d ms", sid, recorder.last_reply_ms)
                     sc = response.server_content
                     if not sc:
                         continue
@@ -91,10 +104,12 @@ async def test_ws(browser_ws: WebSocket):
             await run_bridge(sid, browser_to_gemini(), gemini_to_browser())
     except WebSocketDisconnect:
         log.info("[%s] browser disconnected", sid)
-    except Exception:
+    except Exception as e:
         log.exception("[%s] browser session failed", sid)
+        error = repr(e)
         with suppress(Exception):
             await send_json({"type": "error", "text": "The agent is unavailable right now. Please try again."})
     finally:
         await safe_close(browser_ws)
+        trace.end(outputs={"interruptions": recorder.interruptions}, error=error)
         log.info("[%s] browser session closed", sid)

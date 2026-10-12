@@ -1,36 +1,49 @@
 """Gemini Live client and session config."""
 
 import logging
+from functools import cache
 
 from google import genai
 from google.genai import types
 
-from .config import GEMINI_API_KEY, GEMINI_VOICE
+from .config import GEMINI_API_KEY, GEMINI_LANGUAGE, GEMINI_SILENCE_MS, GEMINI_VOICE
 from .prompts import PO_FOLLOWUP_PROMPT
 
 log = logging.getLogger("voice_agent.gemini")
 
-LIVE_CONFIG = types.LiveConnectConfig(
-    response_modalities=["AUDIO"],
-    system_instruction=PO_FOLLOWUP_PROMPT,
-    speech_config=types.SpeechConfig(
-        voice_config=types.VoiceConfig(
-            prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=GEMINI_VOICE)
-        )
-    ),
-    input_audio_transcription=types.AudioTranscriptionConfig(),
-    output_audio_transcription=types.AudioTranscriptionConfig(),
-    realtime_input_config=types.RealtimeInputConfig(
-        automatic_activity_detection=types.AutomaticActivityDetection(
-            start_of_speech_sensitivity=types.StartSensitivity.START_SENSITIVITY_LOW,
-            end_of_speech_sensitivity=types.EndSensitivity.END_SENSITIVITY_HIGH,
-            prefix_padding_ms=150,
-            silence_duration_ms=500,
-        )
-    ),
-)
+def live_config(system_instruction: str) -> types.LiveConnectConfig:
+    """Session config for one call; the prompt differs per vendor."""
+    return types.LiveConnectConfig(
+        response_modalities=["AUDIO"],
+        system_instruction=system_instruction,
+        speech_config=types.SpeechConfig(
+            language_code=GEMINI_LANGUAGE,
+            voice_config=types.VoiceConfig(
+                prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=GEMINI_VOICE)
+            )
+        ),
+        input_audio_transcription=types.AudioTranscriptionConfig(),
+        output_audio_transcription=types.AudioTranscriptionConfig(),
+        realtime_input_config=types.RealtimeInputConfig(
+            automatic_activity_detection=types.AutomaticActivityDetection(
+                start_of_speech_sensitivity=types.StartSensitivity.START_SENSITIVITY_LOW,
+                end_of_speech_sensitivity=types.EndSensitivity.END_SENSITIVITY_HIGH,
+                prefix_padding_ms=150,
+                silence_duration_ms=GEMINI_SILENCE_MS,
+            )
+        ),
+    )
 
-gemini_client = genai.Client(api_key=GEMINI_API_KEY)
+
+LIVE_CONFIG = live_config(PO_FOLLOWUP_PROMPT)
+
+
+@cache
+def gemini_client() -> genai.Client:
+    """Created on first use, so the server (and the admin page) starts without GEMINI_API_KEY."""
+    if not GEMINI_API_KEY:
+        raise RuntimeError("GEMINI_API_KEY is not set")
+    return genai.Client(api_key=GEMINI_API_KEY)
 
 
 def pcm16k(data: bytes) -> types.Blob:

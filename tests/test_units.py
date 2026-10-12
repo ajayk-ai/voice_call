@@ -40,3 +40,39 @@ def test_build_tab_skips_blank_rows_and_pads():
     tab = build_tab(1, "Master", "master", [["A", "B"], ["1", "", "extra"], ["", ""], ["x"]])
     assert tab.columns == ["a", "b", "col_3"]
     assert tab.rows == [(2, ["1", None, "extra"]), (4, ["x", None, None])]
+
+
+def test_mask_phones_keeps_po_numbers():
+    from monitoring.tracing import mask_phones
+
+    assert mask_phones("call +91 98765 43210 / 09876543210 re PO 4500567101") == (
+        "call 98765***** / 98765***** re PO 4500567101")
+
+
+def test_turn_recorder_measures_reply_time():
+    from types import SimpleNamespace as NS
+
+    from voice_agent.turns import TurnRecorder
+
+    class Trace:
+        def turn(self, *a, **k):
+            self.meta = k["metadata"]
+
+    def sc(**k):
+        base = dict(input_transcription=None, output_transcription=None, interrupted=False, turn_complete=False)
+        return NS(data=None, usage_metadata=None, server_content=NS(**{**base, **k}))
+
+    import voice_agent.turns as turns
+    now = [1.0]
+    real = turns.time.monotonic
+    turns.time.monotonic = lambda: now[0]
+    try:
+        trace = Trace()
+        r = TurnRecorder(trace)
+        r.observe(sc(input_transcription=NS(text="hello")))  # caller heard at 1.0 s
+        now[0] = 1.4
+        r.observe(NS(data=b"x", usage_metadata=None, server_content=None))  # agent audio at 1.4 s
+        assert r.observe(sc(turn_complete=True)) == ("hello", "")
+    finally:
+        turns.time.monotonic = real
+    assert r.last_reply_ms == 400 and trace.meta["reply_ms"] == 400
