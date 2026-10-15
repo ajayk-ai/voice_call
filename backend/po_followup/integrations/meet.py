@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 
 from google.auth.transport.requests import AuthorizedSession
 
-from common.google_auth import delegated_credentials
+from backend.core.google_auth import delegated_credentials
 
 SCOPES = ["https://www.googleapis.com/auth/calendar.events"]
 EVENTS_URL = "https://www.googleapis.com/calendar/v3/calendars/primary/events"

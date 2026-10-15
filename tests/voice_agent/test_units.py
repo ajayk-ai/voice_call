@@ -1,8 +1,8 @@
 import numpy as np
 
-from po_sync.sync import build_tab, unique_names
-from voice_agent.audio import Downsampler
-from voice_agent.security import RateLimiter, mask_number
+from backend.po_sync.sync import build_tab, unique_names
+from backend.voice_agent.audio import Downsampler
+from backend.voice_agent.security import RateLimiter, mask_number
 
 
 def test_downsampler_reduces_rate_by_three():
@@ -43,7 +43,7 @@ def test_build_tab_skips_blank_rows_and_pads():
 
 
 def test_mask_phones_keeps_po_numbers():
-    from monitoring.tracing import mask_phones
+    from backend.core.tracing import mask_phones
 
     assert mask_phones("call +91 98765 43210 / 09876543210 re PO 4500567101") == (
         "call 98765***** / 98765***** re PO 4500567101")
@@ -52,7 +52,7 @@ def test_mask_phones_keeps_po_numbers():
 def test_turn_recorder_measures_reply_time():
     from types import SimpleNamespace as NS
 
-    from voice_agent.turns import TurnRecorder
+    from backend.voice_agent.turns import TurnRecorder
 
     class Trace:
         def turn(self, *a, **k):
@@ -62,7 +62,7 @@ def test_turn_recorder_measures_reply_time():
         base = dict(input_transcription=None, output_transcription=None, interrupted=False, turn_complete=False)
         return NS(data=None, usage_metadata=None, server_content=NS(**{**base, **k}))
 
-    import voice_agent.turns as turns
+    from backend.voice_agent import turns
     now = [1.0]
     real = turns.time.monotonic
     turns.time.monotonic = lambda: now[0]

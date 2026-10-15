@@ -8,7 +8,7 @@ from contextlib import suppress
 
 from fastapi import Request, WebSocket, WebSocketDisconnect
 
-from .config import MAX_SESSION_SECONDS
+from backend.voice_agent.config import MAX_SESSION_SECONDS
 
 log = logging.getLogger("voice_agent.bridge")
 

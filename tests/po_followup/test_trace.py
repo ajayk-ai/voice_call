@@ -4,9 +4,10 @@ from datetime import datetime, timedelta
 
 from fastapi.testclient import TestClient
 
-from po_followup import admin, trace
-from po_followup.run import ZONE
-from voice_agent.app import app
+from backend.po_followup.api import admin
+from backend.po_followup.services import trace
+from backend.po_followup.services.run import ZONE
+from backend.voice_agent.app import app
 
 NOW = datetime(2026, 10, 9, 10, 0, tzinfo=ZONE)
 IV = [1, 1, 1]

@@ -9,11 +9,11 @@ from datetime import datetime, timedelta
 
 from psycopg.types.json import Jsonb
 
-from monitoring.tracing import flush as flush_traces
+from backend.core.tracing import flush as flush_traces
 
-from . import store
-from .config import Settings
-from .run import ZONE, _report_summary, run_daily
+from backend.po_followup.db import store
+from backend.po_followup.config import Settings
+from backend.po_followup.services.run import ZONE, _report_summary, run_daily
 
 log = logging.getLogger("po_followup.service")
 
@@ -101,8 +101,8 @@ def effective_settings(env: str, mode: str) -> Settings:
 # ---------- sheet refresh (production) ----------
 
 def sync_sheet_to_prod() -> dict:
-    """Pull the latest Google Sheet into the production database (same as `python -m po_sync --once`)."""
-    from po_sync import sync as po_sync
+    """Pull the latest Google Sheet into the production database (same as `python -m backend.po_sync --once`)."""
+    from backend.po_sync import sync as po_sync
 
     sheet_id = os.getenv("PO_SHEET_ID")
     if not sheet_id:
@@ -190,9 +190,9 @@ def _execute(env: str, run_id: int, mode: str, trigger: str, held: store.RunLock
         settings = effective_settings(env, mode)
         sender = caller = meet = None
         if mode == "live":
-            from .agent_call import AgentCaller
-            from .meet import MeetScheduler
-            from .whatsapp import UltraMsg
+            from backend.po_followup.integrations.agent_call import AgentCaller
+            from backend.po_followup.integrations.meet import MeetScheduler
+            from backend.po_followup.integrations.whatsapp import UltraMsg
 
             sender = UltraMsg(settings.ultramsg_base_url, settings.ultramsg_token)
             caller, meet = AgentCaller(), MeetScheduler()
@@ -224,8 +224,8 @@ def _execute(env: str, run_id: int, mode: str, trigger: str, held: store.RunLock
 
 def notify_failure(env: str, run_id: int, mode: str, error: str) -> None:
     """WhatsApp the admin (FOLLOWUP_ALERT_MOBILE) when an automatic run fails, so a missed day is noticed."""
-    from .escalation import is_valid_mobile, normalize_mobile
-    from .whatsapp import UltraMsg, mask_token
+    from backend.po_followup.domain.escalation import is_valid_mobile, normalize_mobile
+    from backend.po_followup.integrations.whatsapp import UltraMsg, mask_token
 
     mobile = normalize_mobile(os.getenv("FOLLOWUP_ALERT_MOBILE", ""), False, "")
     if not is_valid_mobile(mobile):
@@ -318,8 +318,8 @@ def start_vendor_test(vendor_code: str, mobile: str, minutes: float, mode: str, 
     Resets the vendor's test tracker/logs/tasks, sends everything to `mobile` (pilot mode, this vendor only),
     runs Scenario 1 now and, with auto, lets the scheduler run every `minutes` for the next steps.
     Returns the id of the first run."""
-    from .escalation import is_valid_mobile, normalize_mobile
-    from .trace import index_vendors
+    from backend.po_followup.domain.escalation import is_valid_mobile, normalize_mobile
+    from backend.po_followup.services.trace import index_vendors
 
     env = "test"
     if mode not in ("dry", "live"):
@@ -356,8 +356,8 @@ def start_vendor_test(vendor_code: str, mobile: str, minutes: float, mode: str, 
 def call_vendor_now(vendor_code: str, mobile: str) -> dict:
     """Ring `mobile` right away with the voice agent reading this vendor's overdue lines from the test data,
     without going through Scenarios 1-2. Nothing is written to the tracker or logs."""
-    from .agent_call import AgentCaller, call_script
-    from .escalation import build_groups, is_valid_mobile, normalize_mobile
+    from backend.po_followup.integrations.agent_call import AgentCaller, call_script
+    from backend.po_followup.domain.escalation import build_groups, is_valid_mobile, normalize_mobile
 
     number = normalize_mobile(mobile, True, mobile)
     if not is_valid_mobile(number):

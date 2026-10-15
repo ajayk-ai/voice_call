@@ -3,8 +3,8 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from voice_agent import security
-from voice_agent.app import app
+from backend.voice_agent import security
+from backend.voice_agent.app import app
 
 client = TestClient(app)
 
@@ -61,7 +61,7 @@ def test_flow_passes_call_script_token_to_media():
 
 
 def test_call_script_token_round_trip_and_tamper_proof():
-    from voice_agent import call_context
+    from backend.voice_agent import call_context
 
     token = call_context.encode("ACME (400200)", "ACME", "400200", [
         {"po": "4500000001", "item": "10", "desc": "Gear", "due": "01-Oct-2026", "pending": "5.000", "uom": "EA", "od": 8}])
@@ -77,7 +77,7 @@ def test_call_script_token_round_trip_and_tamper_proof():
 
 @pytest.fixture
 def teler_key(monkeypatch):
-    from voice_agent import call_context
+    from backend.voice_agent import call_context
 
     monkeypatch.setattr(call_context, "TELER_API_KEY", "teler-test-key")
     return call_context
@@ -96,7 +96,7 @@ def test_call_ticket_signed_fresh_and_tamper_proof(teler_key, monkeypatch):
 
 
 def test_no_tickets_without_teler_key(monkeypatch):
-    from voice_agent import call_context
+    from backend.voice_agent import call_context
 
     monkeypatch.setattr(call_context, "TELER_API_KEY", None)
     assert not call_context.ticket_valid(call_context.ticket())
@@ -105,7 +105,7 @@ def test_no_tickets_without_teler_key(monkeypatch):
 def test_media_refuses_streams_without_a_call_ticket(teler_key, monkeypatch):
     from starlette.websockets import WebSocketDisconnect
 
-    from voice_agent.routes import media
+    from backend.voice_agent.routes import media
 
     monkeypatch.setattr(media, "gemini_client", lambda: pytest.fail("Gemini must not be reached"))
     for url in ("/media", "/media?ticket=123.forged"):
@@ -121,7 +121,7 @@ def test_flow_passes_call_ticket_to_media():
 
 
 def test_health_says_it_understands_call_scripts():
-    from voice_agent import call_context
+    from backend.voice_agent import call_context
 
     assert client.get("/health").headers["x-call-script"] == call_context.VERSION
 
@@ -133,7 +133,7 @@ def test_phone_audio_goes_out_in_whole_20ms_packets(teler_key, monkeypatch):
     from contextlib import asynccontextmanager
     from types import SimpleNamespace as NS
 
-    from voice_agent.routes import media
+    from backend.voice_agent.routes import media
 
     def sc(**k):
         base = dict(interrupted=False, generation_complete=False, turn_complete=False,

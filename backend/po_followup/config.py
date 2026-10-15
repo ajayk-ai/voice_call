@@ -3,7 +3,7 @@
 import os
 from dataclasses import dataclass
 
-from common.env import env_bool
+from backend.core.env import env_bool
 
 __all__ = ["Settings", "env_bool"]
 

@@ -19,10 +19,10 @@ import psycopg
 from psycopg import sql
 from psycopg.rows import dict_row
 
-from po_sync.sync import SCHEMA as SHEETS_SCHEMA
-from po_sync.sync import Tab, ensure_schema, load_state, slugify, write_tab
+from backend.po_sync.sync import SCHEMA as SHEETS_SCHEMA
+from backend.po_sync.sync import Tab, ensure_schema, load_state, slugify, write_tab
 
-from .messages import TAB_HEADERS
+from backend.po_followup.domain.messages import TAB_HEADERS
 
 ENVIRONMENTS = ("prod", "test")
 FOLLOWUP_SCHEMA = "followup"
@@ -269,7 +269,7 @@ def copy_prod_to_test() -> dict:
 def set_test_scenario_numbers(mobile: str) -> int:
     """Point every test vendor's Phone_Master Scenario 1/2/3 numbers at `mobile`, so test runs only ever
     message that one number. Test only. Returns the number of vendor rows updated."""
-    from .escalation import norm
+    from backend.po_followup.domain.escalation import norm
 
     with connect("test") as conn:
         if not table_exists(conn, SHEETS_SCHEMA, "phone_master"):
@@ -382,6 +382,17 @@ def vendor_rows(env: str, title: str, vendor_code: str, limit: int = 500) -> lis
             sql.Identifier(FOLLOWUP_SCHEMA, table), sql.Identifier(column_name(header)), order),
             (pattern.format(_like_literal(vendor_code)), limit)).fetchall()
     return [{h: (r.get(column_name(h)) or "") for h in TAB_HEADERS[title]} for r in rows]
+
+
+def alert_days(env: str, statuses: set[str]) -> list[dict]:
+    """Alert_Log condensed to one row per vendor, level and day: the first time a message with one of
+    `statuses` went out, and whether every one of them was simulated (DRY_RUN)."""
+    with connect(env) as conn:
+        ensure_followup_schema(conn)
+        return conn.execute(
+            "SELECT vendor, escalation_level AS level, alert_date, min(timestamp) AS first_at, "
+            "bool_and(status = 'DRY_RUN') AS simulated FROM followup.alert_log "
+            "WHERE status = ANY(%s) GROUP BY 1, 2, 3 ORDER BY 3, 4", (sorted(statuses),)).fetchall()
 
 
 def reset_vendor(env: str, vendor_code: str) -> dict:

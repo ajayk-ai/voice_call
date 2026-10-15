@@ -18,7 +18,7 @@ def server_url() -> str:
 
 def call_script(g: dict, max_lines: int = 15) -> str:
     """Signed call_context token with the vendor's name and its overdue lines (worst first)."""
-    from voice_agent import call_context
+    from backend.voice_agent import call_context
 
     lines = [{"po": l["poNumber"], "item": l["poItem"], "desc": l["desc"], "due": l["dueText"],
               "pending": l["pending"], "uom": l["uom"], "od": l["od"]}
@@ -35,7 +35,7 @@ def check_stream_server(base: str) -> None:
     scripts (older code would play the fixed sample script instead)."""
     import httpx
 
-    from voice_agent import call_context
+    from backend.voice_agent import call_context
 
     try:
         r = httpx.get(f"{base}/health", timeout=WAKE_TIMEOUT_SECONDS)
@@ -53,8 +53,8 @@ class AgentCaller:
     def call(self, mobile: str, script: str) -> str:
         """Ring `mobile` (digits with country code, e.g. 917200081289) with `script` (call_script's token).
         Returns FreJun's call id."""
-        from voice_agent.config import FREJUN_PHONE_NUMBER, TELER_API_KEY
-        from voice_agent.routes.calls import create_call
+        from backend.voice_agent.config import FREJUN_PHONE_NUMBER, TELER_API_KEY
+        from backend.voice_agent.routes.calls import create_call
 
         if not (TELER_API_KEY and FREJUN_PHONE_NUMBER):
             raise AgentCallNotConfigured("Set TELER_API_KEY and FREJUN_PHONE_NUMBER to place agent calls")

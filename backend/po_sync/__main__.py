@@ -1,3 +1,3 @@
-from .sync import main
+from backend.po_sync.sync import main
 
 main()

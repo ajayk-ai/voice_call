@@ -1,0 +1,948 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Overdue PO Dashboard</title>
+<link rel="stylesheet" href="/assets/ui.css">
+<style>
+  /* ---------- tokens ---------- */
+  :root {
+    color-scheme: light;
+    --page: #f4f6fb; --surface: #ffffff; --surface-2: #f8fafc; --hover: #f1f5fb;
+    --ink: #0f172a; --ink-2: #334155; --ink-3: #64748b; --hair: #e4e8f0; --hair-2: #eef1f6;
+    --accent: #2a78d6; --accent-ink: #1c5cab; --accent-soft: #e8f1fc; --on-accent: #fff;
+    /* stage pipeline: one ordinal blue ramp (validated light->dark) */
+    --stage-0: #86b6ef; --stage-1: #5598e7; --stage-2: #2a78d6; --stage-3: #1c5cab; --stage-4: #104281;
+    /* status: reserved, always shown with an icon + label */
+    --good: #0ca30c; --good-ink: #006300; --good-soft: #e7f5e7;
+    --warning: #fab219; --warning-ink: #8a5a00; --warning-soft: #fdf3dc;
+    --serious: #ec835a; --critical: #d03b3b; --critical-soft: #fbeaea;
+    --info-soft: #e8f1fc;
+    --shadow: 0 1px 2px rgb(15 23 42 / .04), 0 2px 8px rgb(15 23 42 / .04);
+    --shadow-md: 0 1px 2px rgb(15 23 42 / .05), 0 12px 32px rgb(15 23 42 / .08);
+    --shadow-lg: 0 24px 48px rgb(15 23 42 / .22);
+    --r: 14px; --r-sm: 8px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --page: #0b1018; --surface: #121a26; --surface-2: #162131; --hover: #1b273a;
+      --ink: #e8edf5; --ink-2: #c3cede; --ink-3: #8f9bb0; --hair: #243044; --hair-2: #1d2839;
+      --accent: #3987e5; --accent-ink: #86b6ef; --accent-soft: #1b2f42; --on-accent: #0d1216;
+      --stage-0: #1c5cab; --stage-1: #2a78d6; --stage-2: #5598e7; --stage-3: #86b6ef; --stage-4: #b7d3f6;
+      --good-ink: #5fd35f; --good-soft: #17301a; --warning-ink: #f5c45a; --warning-soft: #3a2d12;
+      --critical-soft: #3a1c1c; --info-soft: #1b2f42;
+      --shadow: none; --shadow-md: 0 12px 32px rgb(0 0 0 / .35); --shadow-lg: 0 24px 48px rgb(0 0 0 / .55);
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --page: #0b1018; --surface: #121a26; --surface-2: #162131; --hover: #1b273a;
+    --ink: #e8edf5; --ink-2: #c3cede; --ink-3: #8f9bb0; --hair: #243044; --hair-2: #1d2839;
+    --accent: #3987e5; --accent-ink: #86b6ef; --accent-soft: #1b2f42; --on-accent: #0d1216;
+    --stage-0: #1c5cab; --stage-1: #2a78d6; --stage-2: #5598e7; --stage-3: #86b6ef; --stage-4: #b7d3f6;
+    --good-ink: #5fd35f; --good-soft: #17301a; --warning-ink: #f5c45a; --warning-soft: #3a2d12;
+    --critical-soft: #3a1c1c; --info-soft: #1b2f42;
+    --shadow: none; --shadow-md: 0 12px 32px rgb(0 0 0 / .35); --shadow-lg: 0 24px 48px rgb(0 0 0 / .55);
+  }
+
+  /* ---------- base ---------- */
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body { margin: 0; background: var(--page); color: var(--ink); font: 14px/1.55 var(--font-ui, system-ui); }
+  [hidden] { display: none !important; }
+  h1, h2, h3, p { margin: 0; }
+  a { color: var(--accent-ink); }
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .wrap { max-width: 1440px; margin: 0 auto; padding: 0 24px; }
+  .muted { color: var(--ink-3); }
+  .num { font-variant-numeric: tabular-nums; }
+  svg.i { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  button, .btn { font: 600 13px/1 var(--font-ui, inherit); height: 36px; padding: 0 14px; display: inline-flex; align-items: center; gap: 6px;
+    border-radius: var(--r-sm); border: 1px solid var(--hair); background: var(--surface); color: var(--ink); cursor: pointer; white-space: nowrap; }
+  button:hover { background: var(--hover); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+  button.link { border: 0; background: none; height: auto; padding: 0; color: var(--accent-ink); }
+  button:disabled { opacity: .45; cursor: default; }
+  input, select { font: 14px/1.2 var(--font-ui, inherit); height: 38px; padding: 0 10px; border: 1px solid var(--hair); border-radius: var(--r-sm);
+    background: var(--surface); color: var(--ink); min-width: 0; }
+  input::placeholder { color: var(--ink-3); }
+  input:hover, select:hover { border-color: color-mix(in srgb, var(--ink-3) 45%, var(--hair)); }
+  input:focus, select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent); outline: none; }
+
+  /* ---------- hero header ---------- */
+  .hero { position: relative; color: #fff; overflow: hidden;
+    background:
+      radial-gradient(900px 340px at 90% -45%, rgb(124 92 255 / .40), transparent 70%),
+      radial-gradient(800px 320px at 5% -35%, rgb(59 130 246 / .38), transparent 70%),
+      linear-gradient(180deg, #0b1220 0%, #13203b 100%); }
+  .hero::after { content: ""; position: absolute; inset: 0; pointer-events: none;
+    background-image: linear-gradient(rgb(255 255 255 / .04) 1px, transparent 1px), linear-gradient(90deg, rgb(255 255 255 / .04) 1px, transparent 1px);
+    background-size: 32px 32px; -webkit-mask-image: linear-gradient(180deg, #000, transparent 90%); mask-image: linear-gradient(180deg, #000, transparent 90%); }
+  .hero-in { position: relative; z-index: 1; display: flex; flex-wrap: wrap; gap: 20px 24px; align-items: flex-end; padding-top: 36px; padding-bottom: 100px; }
+  .eyebrow { display: flex; gap: 8px; align-items: center; font-size: 12px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: #93c5fd; margin-bottom: 10px; }
+  .hero h1 { font-size: 32px; font-weight: 800; line-height: 1.15; color: #fff; }
+  .hero .sub { display: flex; gap: 10px; align-items: center; color: rgb(255 255 255 / .68); font-size: 14px; margin-top: 10px; }
+  .live { width: 8px; height: 8px; border-radius: 50%; background: #22c55e; box-shadow: 0 0 0 4px rgb(34 197 94 / .22); flex: none; }
+  .hero .actions { margin-left: auto; display: flex; gap: 10px; align-items: center; }
+  .hero button { height: 40px; padding: 0 16px; border-radius: 10px; background: rgb(255 255 255 / .08); border-color: rgb(255 255 255 / .18); color: #fff; }
+  .hero button:hover { background: rgb(255 255 255 / .15); }
+  .hero button.primary { background: #fff; border-color: #fff; color: #0b1220; box-shadow: 0 6px 18px rgb(0 0 0 / .25); }
+  .hero button.primary:hover { background: #e7eefc; }
+  .hero :focus-visible { outline-color: #93c5fd; }
+  .badge-env { font-size: 11px; font-weight: 700; letter-spacing: .08em; padding: 4px 9px; border-radius: 6px;
+    background: rgb(250 178 25 / .16); color: #fcd34d; border: 1px solid rgb(250 178 25 / .4); }
+  .spin { animation: spin 1s linear infinite; } @keyframes spin { to { transform: rotate(360deg); } }
+
+  main.wrap { display: grid; gap: 24px; padding-top: 0; padding-bottom: 48px; position: relative; z-index: 2; }
+  #app > .kpis { margin-top: -64px; }
+  #app > .banner:first-child:not([hidden]) + .kpis { margin-top: 0; }
+  #gate { margin-top: -64px; }
+  .card { background: var(--surface); border: 1px solid var(--hair); border-radius: var(--r); box-shadow: var(--shadow); min-width: 0; }
+  .card-h { display: flex; flex-wrap: wrap; gap: 4px 16px; align-items: baseline; padding: 22px 24px 0; }
+  .card-h h2 { font-size: 17px; font-weight: 700; }
+  .card-h p { color: var(--ink-3); font-size: 13px; }
+  .card-b { padding: 16px 24px 24px; }
+  .banner { display: flex; gap: 12px; align-items: center; padding: 12px 16px; border-radius: var(--r-sm); font-size: 13px; }
+  .banner.warn { background: var(--warning-soft); color: var(--ink); }
+  .banner.err { background: var(--critical-soft); color: var(--ink); }
+  .banner svg { color: var(--warning-ink); } .banner.err svg { color: var(--critical); }
+  .banner .grow { flex: 1; }
+
+  /* ---------- KPI tiles ---------- */
+  .kpis { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 16px; }
+  .kpi { padding: 18px 20px; display: grid; gap: 6px; align-content: start; }
+  .kpi .label { font-size: 12px; font-weight: 600; color: var(--ink-3); text-transform: uppercase; letter-spacing: .05em; }
+  .kpi { box-shadow: var(--shadow-md); }
+  .kpi .value { font-family: var(--font-display); font-size: 32px; font-weight: 800; line-height: 1.1; letter-spacing: -.025em; white-space: nowrap; }
+  .kpi .note { font-size: 12.5px; color: var(--ink-3); display: flex; align-items: center; gap: 6px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; display: inline-block; }
+
+  /* ---------- pipeline ---------- */
+  .pipe { display: flex; gap: 2px; height: 14px; border-radius: 4px; overflow: hidden; background: var(--surface); }
+  .pipe .seg { min-width: 3px; height: 100%; cursor: pointer; transition: opacity .15s; }
+  .pipe .seg:first-child { border-radius: 4px 0 0 4px; } .pipe .seg:last-child { border-radius: 0 4px 4px 0; }
+  .pipe:hover .seg { opacity: .55; } .pipe .seg:hover { opacity: 1; }
+  .stages { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; margin-top: 16px; }
+  .stage { height: auto; display: grid; gap: 4px; justify-items: start; text-align: left; padding: 12px 14px; border-radius: var(--r-sm);
+    border: 1px solid var(--hair); background: var(--surface); font-weight: 400; white-space: normal; }
+  .stage[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); background: var(--accent-soft); }
+  .stage .top { display: flex; gap: 8px; align-items: center; font-size: 12px; color: var(--ink-3); font-weight: 600; }
+  .stage .sw { width: 10px; height: 10px; border-radius: 3px; }
+  .stage .name { font-weight: 600; font-size: 13.5px; color: var(--ink); }
+  .stage .cnt { font-family: var(--font-display); font-size: 22px; font-weight: 800; letter-spacing: -.02em; }
+  .stage .pct { font-size: 12px; color: var(--ink-3); font-weight: 500; margin-left: 4px; }
+  #tip { position: fixed; z-index: 40; pointer-events: none; background: var(--ink); color: var(--surface); padding: 8px 10px; border-radius: 6px;
+    font-size: 12.5px; box-shadow: var(--shadow-lg); max-width: 260px; }
+  .legend-line { display: flex; flex-wrap: wrap; gap: 6px 20px; margin-top: 16px; font-size: 12.5px; color: var(--ink-3); }
+  .legend-line b { color: var(--ink-2); font-weight: 600; }
+
+  /* ---------- toolbar ---------- */
+  .toolbar { display: grid; gap: 12px; padding: 20px 24px 16px; border-bottom: 1px solid var(--hair); }
+  .tb-row { display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: center; }
+  .search { position: relative; flex: 1 1 280px; max-width: 420px; }
+  .search svg { position: absolute; left: 10px; top: 10px; color: var(--ink-3); }
+  .search input { width: 100%; padding-left: 34px; padding-right: 36px; }
+  .search kbd { position: absolute; right: 8px; top: 8px; font: 600 11px/1 inherit; color: var(--ink-3); border: 1px solid var(--hair); border-radius: 4px; padding: 3px 6px; }
+  .field { display: flex; align-items: center; gap: 6px; }
+  .field > span { font-size: 12.5px; color: var(--ink-3); font-weight: 600; }
+  #fVendor { width: 220px; } #fBuyer { width: 160px; } #fNext { width: 170px; }
+  .seg-ctl { display: inline-flex; border: 1px solid var(--hair); border-radius: var(--r-sm); overflow: hidden; height: 36px; }
+  .seg-ctl button { border: 0; border-radius: 0; height: 100%; font-weight: 600; color: var(--ink-2); }
+  .seg-ctl button + button { border-left: 1px solid var(--hair); }
+  .seg-ctl button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent-ink); }
+  .ages { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .chipbtn { height: 30px; padding: 0 10px; border-radius: 999px; font-weight: 600; font-size: 12.5px; color: var(--ink-2); }
+  .chipbtn .c { color: var(--ink-3); font-weight: 500; }
+  .chipbtn[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-ink); }
+  .spacer { flex: 1; }
+  .active { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 12.5px; }
+  .tag { display: inline-flex; align-items: center; gap: 4px; height: 26px; padding: 0 4px 0 10px; border-radius: 999px; background: var(--hair-2); color: var(--ink-2); font-weight: 600; }
+  .tag button { height: 20px; width: 20px; padding: 0; justify-content: center; border: 0; background: none; border-radius: 50%; color: var(--ink-3); }
+  .tag button:hover { background: var(--hair); }
+
+  /* ---------- table ---------- */
+  .tablewrap { overflow-x: auto; }
+  table { border-collapse: separate; border-spacing: 0; width: 100%; font-size: 13.5px; }
+  th, td { text-align: left; vertical-align: middle; padding: 12px 12px; border-bottom: 1px solid var(--hair-2); }
+  .compact th, .compact td { padding-top: 7px; padding-bottom: 7px; }
+  th:first-child, td:first-child { padding-left: 24px; } th:last-child, td:last-child { padding-right: 24px; }
+  thead th { background: var(--surface-2); border-bottom: 1px solid var(--hair); font-size: 11.5px; font-weight: 600; color: var(--ink-3);
+    text-transform: uppercase; letter-spacing: .06em; white-space: nowrap; padding-top: 10px; padding-bottom: 10px; }
+  thead th small { display: block; font-size: 11.5px; text-transform: none; letter-spacing: 0; font-weight: 500; color: var(--ink-3); opacity: .85; }
+  th.r, td.r { text-align: right; }
+  th .sortbtn { all: unset; cursor: pointer; display: inline-flex; gap: 6px; align-items: center; border-radius: 4px; }
+  th .sortbtn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  th .sortbtn:hover { color: var(--ink); }
+  th .arrow { width: 10px; text-align: center; font-size: 10px; opacity: 0; }
+  th .sortbtn:hover .arrow { opacity: .5; }
+  th[aria-sort="ascending"], th[aria-sort="descending"] { color: var(--ink); }
+  th[aria-sort="ascending"] .arrow, th[aria-sort="descending"] .arrow { opacity: 1; color: var(--accent-ink); }
+  tbody tr.line { cursor: pointer; }
+  tbody tr.line:hover td { background: var(--hover); }
+  tbody tr.line:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  tr.group td { background: var(--surface-2); border-bottom: 1px solid var(--hair); padding-top: 10px; padding-bottom: 10px; cursor: pointer; }
+  tr.group:hover td { background: var(--hover); }
+  tbody + tbody tr.group td { border-top: 8px solid var(--surface); }
+  .gh { display: flex; flex-wrap: wrap; gap: 4px 18px; align-items: center; }
+  .gh .chev { transition: transform .15s; color: var(--ink-3); }
+  tr.group[aria-expanded="false"] .chev { transform: rotate(-90deg); }
+  .gh .po { font-weight: 700; font-size: 14px; }
+  .gh .vendor { font-weight: 600; }
+  .gh .meta { color: var(--ink-3); font-size: 12.5px; }
+  .gh .push { margin-left: auto; display: flex; gap: 12px; align-items: center; }
+  .cell-main { font-weight: 600; }
+  .cell-sub { color: var(--ink-3); font-size: 12.5px; white-space: nowrap; }
+  td.mat { min-width: 160px; max-width: 230px; }
+  td.mat .cell-main { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  td.vend { max-width: 170px; } td.vend .cell-sub { overflow: hidden; text-overflow: ellipsis; } td.vend .cell-main { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .late { display: inline-flex; align-items: center; gap: 8px; font-weight: 650; }
+  .sev-0 { background: var(--ink-3); opacity: .5; } .sev-1 { background: var(--warning); } .sev-2 { background: var(--serious); } .sev-3, .sev-4 { background: var(--critical); }
+  .st { display: grid; grid-template-columns: 16px auto; column-gap: 6px; align-items: center; white-space: nowrap; }
+  .st .l { font-weight: 600; font-size: 13px; }
+  .st .d { grid-column: 2; font-size: 12px; color: var(--ink-3); }
+  .st.done svg { color: var(--good); } .st.due svg { color: var(--warning); } .st.scheduled svg { color: var(--accent); }
+  .st.on_hold svg, .st.upcoming svg { color: var(--ink-3); } .st.upcoming .l { color: var(--ink-3); font-weight: 500; }
+  .pill { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 10px; border-radius: 999px; font-size: 12px; font-weight: 600; white-space: nowrap; background: var(--hair-2); color: var(--ink-2); }
+  .pill.due { background: var(--warning-soft); color: var(--ink); } .pill.due svg { color: var(--warning-ink); }
+  .pill.scheduled { background: var(--info-soft); color: var(--ink); } .pill.scheduled svg { color: var(--accent); }
+  .pill.meeting { background: var(--critical-soft); color: var(--ink); } .pill.meeting svg { color: var(--critical); }
+  .pill.done { background: var(--good-soft); color: var(--ink); } .pill.done svg { color: var(--good); }
+  .stagepill { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 600; color: var(--ink-2); }
+  .empty { padding: 56px 24px; text-align: center; color: var(--ink-3); }
+  .empty b { display: block; color: var(--ink); font-size: 15px; margin-bottom: 4px; }
+
+  .tfoot { display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: center; padding: 14px 24px; font-size: 13px; color: var(--ink-2); }
+  .pager { display: flex; gap: 6px; align-items: center; margin-left: auto; }
+  .pager button { width: 36px; padding: 0; justify-content: center; }
+  .pager .pg { min-width: 110px; text-align: center; }
+
+  /* ---------- skeleton ---------- */
+  .sk { background: linear-gradient(90deg, var(--hair-2) 25%, var(--hover) 50%, var(--hair-2) 75%); background-size: 200% 100%; animation: sk 1.2s infinite; border-radius: 6px; }
+  @keyframes sk { to { background-position: -200% 0; } }
+
+  /* ---------- drawer ---------- */
+  .scrim { position: fixed; inset: 0; background: rgb(15 23 42 / .35); z-index: 30; }
+  .drawer { position: fixed; top: 0; right: 0; bottom: 0; width: min(480px, 100%); background: var(--surface); z-index: 31; box-shadow: var(--shadow-lg);
+    display: grid; grid-template-rows: auto 1fr; border-left: 1px solid var(--hair); }
+  .drawer header { display: flex; gap: 12px; align-items: start; padding: 20px 24px; border-bottom: 1px solid var(--hair); }
+  .drawer header h2 { font-size: 18px; font-weight: 700; }
+  .drawer header .x { margin-left: auto; width: 36px; padding: 0; justify-content: center; }
+  .drawer .body { overflow-y: auto; padding: 20px 24px 32px; display: grid; gap: 24px; align-content: start; }
+  .drawer h3 { font-size: 12px; font-weight: 600; color: var(--ink-3); text-transform: uppercase; letter-spacing: .05em; margin-bottom: 10px; }
+  .facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 20px; margin: 0; }
+  .facts div { min-width: 0; } .facts dt { font-size: 12px; color: var(--ink-3); } .facts dd { margin: 2px 0 0; font-weight: 600; overflow-wrap: anywhere; }
+  .facts .wide { grid-column: 1 / -1; }
+  .tl { list-style: none; margin: 0; padding: 0; display: grid; }
+  .tl li { display: grid; grid-template-columns: 28px 1fr; column-gap: 12px; position: relative; padding-bottom: 20px; }
+  .tl li:last-child { padding-bottom: 0; }
+  .tl li:not(:last-child)::before { content: ""; position: absolute; left: 13px; top: 28px; bottom: 0; width: 2px; background: var(--hair); }
+  .tl li.done:not(:last-child)::before { background: var(--good); }
+  .tl .node { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; border: 2px solid var(--hair); background: var(--surface); color: var(--ink-3); }
+  .tl .done .node { border-color: var(--good); background: var(--good); color: #fff; }
+  .tl .due .node { border-color: var(--warning); color: var(--warning-ink); }
+  .tl .scheduled .node { border-color: var(--accent); color: var(--accent); }
+  .tl .t { font-weight: 650; } .tl .w { font-size: 12.5px; color: var(--ink-3); } .tl .s { margin-top: 6px; }
+
+  /* ---------- colour + boxes ---------- */
+  :root {
+    --blue: #2a78d6; --blue-soft: #e8f1fc; --violet: #6250d6; --violet-soft: #efedfb; --orange: #eb6834; --orange-soft: #fdeee7;
+    --red: #d03b3b; --red-soft: #fbeaea; --green: #0ca30c; --green-soft: #e7f5e7; --neutral-soft: #f1f5f9;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --blue: #3987e5; --blue-soft: #1b2f42; --violet: #9085e9; --violet-soft: #262246; --orange: #d95926; --orange-soft: #3a2418;
+      --red: #e66767; --red-soft: #3a1c1c; --green-soft: #17301a; --neutral-soft: #1b2738;
+    }
+  }
+  :root[data-theme="dark"] {
+    --blue: #3987e5; --blue-soft: #1b2f42; --violet: #9085e9; --violet-soft: #262246; --orange: #d95926; --orange-soft: #3a2418;
+    --red: #e66767; --red-soft: #3a1c1c; --green-soft: #17301a; --neutral-soft: #1b2738;
+  }
+
+  .kpi { position: relative; overflow: hidden; grid-template-columns: 1fr auto; column-gap: 12px; }
+  .kpi::before { content: ""; position: absolute; inset: 0 auto 0 0; width: 4px; background: var(--k); }
+  .kpi .label, .kpi .value, .kpi .note { grid-column: 1; }
+  .kpi .ic { grid-column: 2; grid-row: 1 / span 3; width: 42px; height: 42px; border-radius: 12px; display: grid; place-items: center;
+    background: var(--k-soft); color: var(--k); }
+  .kpi .ic svg { width: 22px; height: 22px; }
+
+  .stage { border-top: 4px solid var(--sc); }
+  .stage:hover { background: var(--surface-2); }
+  .legend-line { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+  .lg { display: grid; grid-template-columns: 28px 1fr; gap: 2px 10px; padding: 12px; border-radius: 8px; background: var(--surface-2); border: 1px solid var(--hair-2); }
+  .lg .no { grid-row: 1 / span 2; width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center; font-weight: 700; font-size: 13px;
+    background: var(--blue-soft); color: var(--accent-ink); }
+  .lg.meet .no { background: var(--red-soft); color: var(--red); }
+  .lg b { color: var(--ink); font-size: 13px; } .lg span { font-size: 12.5px; }
+
+  .toolbar { background: var(--surface-2); border-radius: var(--r) var(--r) 0 0; }
+
+  .st { display: inline-grid; padding: 6px 10px; border-radius: 8px; border: 1px solid transparent; min-width: 96px; }
+  .st.done { background: var(--green-soft); border-color: color-mix(in srgb, var(--green) 28%, transparent); }
+  .st.due { background: var(--warning-soft); border-color: color-mix(in srgb, var(--warning) 45%, transparent); }
+  .st.scheduled { background: var(--blue-soft); border-color: color-mix(in srgb, var(--blue) 28%, transparent); }
+  .st.on_hold { background: var(--neutral-soft); border: 1px dashed var(--hair); }
+  .st.upcoming { border: 1px dashed var(--hair); }
+
+  .late { padding: 3px 8px; border-radius: 6px; background: var(--neutral-soft); }
+  .late.b1 { background: var(--warning-soft); } .late.b2 { background: var(--orange-soft); } .late.b3, .late.b4 { background: var(--red-soft); }
+
+  tr.group td { box-shadow: inset 4px 0 0 var(--sc); }
+  .gh .po { background: var(--surface); border: 1px solid var(--hair); padding: 2px 10px; border-radius: 6px; }
+  .stagepill { background: var(--surface); border: 1px solid var(--hair); padding: 3px 10px; border-radius: 999px; }
+  tbody tr.line:hover td { background: color-mix(in srgb, var(--blue-soft) 60%, var(--surface)); }
+
+  .facts > div { background: var(--surface-2); border: 1px solid var(--hair-2); border-radius: 8px; padding: 10px 12px; }
+  .statusbox { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 12px; border-radius: 10px; background: var(--surface-2); border: 1px solid var(--hair-2); }
+
+  /* ---------- responsive ---------- */
+  @media (max-width: 1180px) { .kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+  @media (max-width: 900px) { .stages { grid-template-columns: repeat(3, minmax(0, 1fr)); } .legend-line { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @media (max-width: 720px) {
+    .wrap { padding: 0 16px; }
+    .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+    .kpi { grid-template-columns: 1fr; padding: 16px; } .kpi .label { padding-right: 40px; }
+    .kpi .ic { position: absolute; top: 12px; right: 12px; width: 32px; height: 32px; border-radius: 9px; } .kpi .ic svg { width: 18px; height: 18px; }
+    .stages { grid-template-columns: repeat(2, minmax(0, 1fr)); } .legend-line { grid-template-columns: 1fr; }
+    .card-h, .toolbar { padding-left: 16px; padding-right: 16px; } .card-b { padding: 16px; }
+    th:first-child, td:first-child { padding-left: 16px; } th:last-child, td:last-child { padding-right: 16px; }
+    .search { max-width: none; flex-basis: 100%; } #fVendor, #fBuyer, #fNext { width: 100%; } .field { flex: 1 1 100%; }
+    .field > span { min-width: 72px; } .tfoot { padding: 14px 16px; } .search kbd { display: none; }
+    .hero-in { padding-top: 24px; padding-bottom: 88px; } .hero h1 { font-size: 26px; } .hero .actions { margin-left: 0; }
+  }
+  .foot { display: flex; flex-wrap: wrap; gap: 6px 16px; justify-content: space-between; padding-top: 8px; padding-bottom: 32px; color: var(--ink-3); font-size: 12.5px; }
+  @media print { .gnav, .toolbar, .tfoot, .actions { display: none !important; } .hero { background: none; color: var(--ink); } .hero h1 { color: var(--ink); } .card { box-shadow: none; } }
+</style>
+</head>
+<body>
+<nav class="gnav" aria-label="Pages"><div class="gnav-in">
+    <a class="brand" href="/"><span class="mark" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 7l9-4 9 4-9 4-9-4z"/><path d="M3 7v10l9 4 9-4V7M12 11v10"/></svg></span><span class="word"><b>PO Agent</b><small>Supply chain follow-up</small></span></a>
+    <div class="links">
+      <a href="/dashboard" aria-current="page">Dashboard</a>
+      <a href="/?tab=phone">Normal call</a>
+      <a href="/?tab=browser">Voice agent</a>
+      <a href="/admin">Follow-up admin</a>
+    </div>
+</div></nav>
+<header class="hero">
+  <div class="wrap hero-in">
+    <div>
+      <p class="eyebrow">Supply chain · Purchase order follow-up</p>
+      <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+        <h1>Overdue Purchase Orders</h1>
+        <span class="badge-env" id="envBadge" hidden>TEST DATA</span>
+      </div>
+      <p class="sub"><i class="live" aria-hidden="true"></i><span id="asof">Loading…</span></p>
+    </div>
+    <div class="actions">
+      <button id="csv" title="Download the lines that match your filters"><svg class="i" viewBox="0 0 24 24"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2"/></svg>Export CSV</button>
+      <button id="refresh" class="primary"><svg class="i" viewBox="0 0 24 24"><path d="M20 11a8 8 0 10-2.3 5.7M20 4v7h-7"/></svg>Refresh</button>
+    </div>
+  </div>
+</header>
+
+<!-- sign-in -->
+<main class="wrap" id="gate" hidden>
+  <section class="card" style="max-width:420px;margin:40px auto 0;width:100%">
+    <div class="card-h"><h2>Sign in to the dashboard</h2></div>
+    <form id="gateForm" class="card-b" style="display:grid;gap:16px">
+      <p id="gateMsg" style="font-size:13px"></p>
+      <label id="gateCodeWrap" style="display:grid;gap:6px;font-weight:600;font-size:13px">Access code
+        <input id="gateCode" type="password" autocomplete="current-password" required>
+      </label>
+      <div><button type="submit" class="primary" id="gateBtn">Open dashboard</button></div>
+    </form>
+  </section>
+</main>
+
+<main class="wrap" id="app">
+  <div class="banner err" id="errBanner" role="alert" hidden>
+    <svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16h.01"/></svg>
+    <span class="grow" id="errText"></span><button id="errRetry">Try again</button>
+  </div>
+
+  <section class="kpis" id="kpis" aria-label="Key figures"></section>
+
+  <section class="card" aria-labelledby="pipeH">
+    <div class="card-h">
+      <h2 id="pipeH">Follow-up pipeline</h2>
+      <p>Where each overdue line is in the escalation. Select a stage to filter the list.</p>
+    </div>
+    <div class="card-b">
+      <div class="pipe" id="pipe" role="img"></div>
+      <div class="stages" id="stages"></div>
+      <div class="legend-line" id="legend"></div>
+      <div class="banner warn" id="pilotNote" style="margin-top:16px" hidden>
+        <svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16h.01"/></svg>
+        <span class="grow">Pilot phase: only selected vendors are being followed up right now. Lines of other vendors show <b>On hold</b>.</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="card" aria-labelledby="listH">
+    <h2 id="listH" class="sr">Overdue PO lines</h2>
+    <div class="toolbar">
+      <div class="tb-row">
+        <label class="search">
+          <span class="sr">Search</span>
+          <svg class="i" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+          <input id="fQ" type="search" placeholder="Search PO, vendor, material, buyer" autocomplete="off">
+          <kbd>/</kbd>
+        </label>
+        <label class="field"><span>Vendor</span><input id="fVendor" list="vendorList" placeholder="All vendors" autocomplete="off"></label>
+        <datalist id="vendorList"></datalist>
+        <label class="field"><span>Buyer</span><select id="fBuyer"></select></label>
+        <label class="field"><span>Next step</span>
+          <select id="fNext">
+            <option value="">Any</option>
+            <option value="due">Due now</option>
+            <option value="scheduled">Scheduled</option>
+            <option value="on_hold">On hold</option>
+            <option value="meeting">Meeting stage</option>
+          </select>
+        </label>
+      </div>
+      <div class="tb-row">
+        <span class="field"><span>Days late</span></span>
+        <div class="ages" id="ages" role="group" aria-label="Days late"></div>
+        <span class="spacer"></span>
+        <div class="seg-ctl" role="group" aria-label="View">
+          <button data-view="po">Group by PO</button><button data-view="lines">All lines</button>
+        </div>
+        <div class="seg-ctl" role="group" aria-label="Row density">
+          <button data-density="comfortable" title="Comfortable rows"><svg class="i" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
+          <button data-density="compact" title="Compact rows"><svg class="i" viewBox="0 0 24 24"><path d="M4 5h16M4 9.5h16M4 14h16M4 18.5h16"/></svg></button>
+        </div>
+      </div>
+      <div class="active" id="active" hidden></div>
+    </div>
+
+    <div class="tablewrap" id="tablewrap">
+      <table id="table">
+        <caption class="sr">Overdue PO lines with the status of Scenario 1, 2 and 3</caption>
+        <thead id="thead"></thead>
+      </table>
+    </div>
+    <div class="tfoot">
+      <span id="range" class="num"></span>
+      <label class="field"><span>Rows</span>
+        <select id="fSize"><option>25</option><option>50</option><option>100</option><option>200</option></select>
+      </label>
+      <button class="link" id="toggleAll" hidden></button>
+      <div class="pager">
+        <button id="first" title="First page" aria-label="First page">«</button>
+        <button id="prev" title="Previous page" aria-label="Previous page">‹</button>
+        <span class="pg num" id="pg"></span>
+        <button id="next" title="Next page" aria-label="Next page">›</button>
+        <button id="last" title="Last page" aria-label="Last page">»</button>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="wrap foot"><span>PO Agent · Overdue purchase orders</span><span>Times in IST · refreshes every 2 minutes · Scenario dates come from the follow-up log</span></footer>
+
+<div class="scrim" id="scrim" hidden></div>
+<aside class="drawer" id="drawer" role="dialog" aria-modal="true" aria-labelledby="dTitle" hidden>
+  <header>
+    <div><p class="muted" id="dKicker" style="font-size:12.5px"></p><h2 id="dTitle"></h2></div>
+    <button class="x" id="dClose" aria-label="Close"><svg class="i" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+  </header>
+  <div class="body" id="dBody"></div>
+</aside>
+<div id="tip" hidden></div>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const REFRESH_MS = 120000;
+const env = new URLSearchParams(location.search).get("env") === "test" ? "test" : "prod";
+const ICON = {
+  done: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
+  due: '<circle cx="12" cy="12" r="9"/><path d="M12 7.5v5M12 16.2h.01"/>',
+  scheduled: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  on_hold: '<circle cx="12" cy="12" r="9"/><path d="M10 9v6M14 9v6"/>',
+  upcoming: '<path d="M7 12h10"/>',
+  meeting: '<rect x="3.5" y="5" width="17" height="15" rx="2"/><path d="M8 3v4M16 3v4M3.5 10h17"/>',
+  chev: '<path d="M6 9l6 6 6-6"/>',
+  lines: '<path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/>',
+  vendors: '<path d="M3 21V9l6-4v4l6-4v4l6-4v16z"/><path d="M7 17h2M11 17h2M15 17h2"/>',
+  alert: '<path d="M12 3l9.5 17h-19z"/><path d="M12 10v4M12 17h.01"/>',
+  hourglass: '<path d="M6 3h12M6 21h12M7 3c0 5 10 5 10 9s-10 4-10 9M17 3c0 5-10 5-10 9"/>',
+  check: '<circle cx="12" cy="12" r="9"/><path d="M8 12.5l2.7 2.7L16 10"/>',
+};
+const icon = (k) => `<svg class="i" viewBox="0 0 24 24" aria-hidden="true">${ICON[k]}</svg>`;
+const AGES = [
+  { key: "1-7", label: "1–7 days", min: 0, max: 7 },
+  { key: "8-30", label: "8–30", min: 7, max: 30 },
+  { key: "31-90", label: "31–90", min: 30, max: 90 },
+  { key: "91-180", label: "91–180", min: 90, max: 180 },
+  { key: "180+", label: "180+", min: 180, max: Infinity },
+];
+const STATE_RANK = { due: 0, scheduled: 1, on_hold: 2, upcoming: 3, done: 4 };
+const DEFAULTS = { q: "", vendor: "", buyer: "", stage: "", next: "", age: "", sort: "od", dir: "desc", view: "po", page: 1, size: 50 };
+
+let data = null, lines = [], state = { ...DEFAULTS }, density = "comfortable", collapsed = new Set(), code = "", timer = null, loading = false, lastFocus = null;
+try {
+  code = sessionStorage.getItem("dashboard_code") || sessionStorage.getItem("admin_code") || sessionStorage.getItem("access_code") || "";
+  const saved = JSON.parse(localStorage.getItem("dash_prefs") || "{}");
+  if (saved.view) state.view = saved.view;
+  if (saved.size) state.size = saved.size;
+  if (saved.density) density = saved.density;
+} catch (e) {}
+// URL wins over saved preferences, so a shared link opens the same view
+(function readUrl() {
+  const u = new URLSearchParams(location.search);
+  for (const k of Object.keys(DEFAULTS)) if (u.has(k)) state[k] = typeof DEFAULTS[k] === "number" ? (+u.get(k) || DEFAULTS[k]) : u.get(k);
+})();
+$("envBadge").hidden = env !== "test";
+
+// ---------- formatting ----------
+function esc(s) { return String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
+const nf = new Intl.NumberFormat("en-IN", { maximumFractionDigits: 2 });
+const n = (v) => nf.format(v);
+function fmtDate(iso, time = false) {
+  if (!iso) return "";
+  const o = { timeZone: "Asia/Kolkata", day: "numeric", month: "short" };
+  if (time) Object.assign(o, { hour: "2-digit", minute: "2-digit", hour12: false });
+  return new Date(iso).toLocaleString("en-IN", o);
+}
+function ago(iso) {
+  const m = Math.round((Date.now() - new Date(iso)) / 60000);
+  if (m < 1) return "just now";
+  if (m < 60) return `${m} min ago`;
+  const h = Math.round(m / 60);
+  return h < 24 ? `${h} h ago` : fmtDate(iso, true);
+}
+const pct = (a, b) => (b ? Math.round((100 * a) / b) : 0);
+function ageBucket(od) { return AGES.findIndex((a) => od > a.min && od <= a.max); }
+function qty(s) { const v = parseFloat(String(s).replace(/,/g, "")); return Number.isFinite(v) ? v : -Infinity; }
+
+// ---------- what a line's status means ----------
+function scenarioCell(s) {
+  const t = {
+    done: [s.simulated ? "Simulated" : "Sent", fmtDate(s.at)],
+    due: ["Due now", "next run"],
+    scheduled: ["Scheduled", fmtDate(s.at, true)],
+    on_hold: ["On hold", "pilot"],
+    upcoming: ["Not yet", ""],
+  }[s.state];
+  const tip = { done: s.simulated ? "Test run – no WhatsApp was actually sent" : "Sent on " + fmtDate(s.at, true),
+    due: "Goes out on the next follow-up run", scheduled: "Goes out on the first run after " + fmtDate(s.at, true) + " IST",
+    on_hold: "Pilot mode: this vendor is not being followed up yet", upcoming: "Starts after the previous scenario" }[s.state];
+  return `<div class="st ${s.state}" title="${esc(tip)}">${icon(s.state)}<span class="l">${t[0]}</span>${t[1] ? `<span class="d">${esc(t[1])}</span>` : ""}</div>`;
+}
+function nextStep(l) {
+  if (l.meeting) return { kind: "meeting", rank: 5, text: "Meeting stage" };
+  const i = l.scenarios.findIndex((s) => s.state !== "done");
+  if (i < 0) return { kind: "done", rank: 4, text: "Meeting next" };
+  const s = l.scenarios[i], name = "Scenario " + (i + 1);
+  if (s.state === "on_hold") return { kind: "on_hold", rank: 3, text: "On hold" };
+  if (s.state === "due") return { kind: "due", rank: 0, text: name + " due now" };
+  return { kind: "scheduled", rank: 1, text: `${name} · ${fmtDate(s.at, true)}`, at: s.at };
+}
+function nextPill(x) {
+  const ic = { meeting: "meeting", done: "done", on_hold: "on_hold", due: "due", scheduled: "scheduled" }[x.kind];
+  return `<span class="pill ${x.kind}">${icon(ic)}${esc(x.text)}</span>`;
+}
+function lateCell(od) {
+  const b = ageBucket(od);
+  return `<span class="late num b${Math.max(b, 0)}" title="${esc(AGES[b]?.label || "")} days late">${n(od)}<i class="dot sev-${Math.max(b, 0)}"></i></span>`;
+}
+
+// ---------- data ----------
+async function load() {
+  if (loading) return;
+  loading = true; clearTimeout(timer);
+  $("refresh").querySelector("svg").classList.add("spin");
+  try {
+    const res = await fetch("/dashboard/api/" + env, { headers: { "X-Access-Code": code } });
+    const body = await res.json().catch(() => ({}));
+    if (res.status === 401 || res.status === 403) { showGate(res.status, body.error); return; }
+    if (!res.ok) throw new Error(body.error || res.statusText);
+    data = body;
+    lines = data.pos.flatMap((p) => p.lines.map((l) => {
+      const x = { ...l, p, next: null };
+      x.next = nextStep(x);
+      x.hay = [p.po, p.vendor_name, p.vendor_code, p.buyer, p.purchasing_group, l.material, l.desc].join(" ").toLowerCase();
+      return x;
+    }));
+    $("gate").hidden = true; $("app").hidden = false; $("errBanner").hidden = true;
+    renderAll();
+  } catch (e) {
+    $("errText").textContent = "Could not load the latest data: " + e.message;
+    $("errBanner").hidden = false;
+    if (!data) skeleton();
+  } finally {
+    loading = false;
+    $("refresh").querySelector("svg").classList.remove("spin");
+    timer = setTimeout(load, REFRESH_MS);
+  }
+}
+function showGate(status, message) {
+  $("app").hidden = true; $("gate").hidden = false;
+  const ask = status === 401;
+  $("gateCodeWrap").hidden = !ask; $("gateCode").required = ask;
+  $("gateBtn").textContent = ask ? "Open dashboard" : "Try again";
+  $("gateMsg").style.color = ask && !code ? "" : "var(--critical)";
+  $("gateMsg").textContent = ask && !code ? "Enter the access code you were given for the dashboard." : (message || "Dashboard unavailable.");
+  if (ask) $("gateCode").focus();
+}
+$("gateForm").onsubmit = (e) => {
+  e.preventDefault();
+  if (!$("gateCodeWrap").hidden) { code = $("gateCode").value; try { sessionStorage.setItem("dashboard_code", code); } catch (err) {} }
+  load();
+};
+$("refresh").onclick = load;
+$("errRetry").onclick = load;
+
+function skeleton() {
+  $("kpis").innerHTML = Array.from({ length: 5 }, () => `<div class="card kpi"><div class="sk" style="height:12px;width:60%"></div><div class="sk" style="height:30px;width:45%"></div></div>`).join("");
+}
+
+// ---------- header, KPIs, pipeline ----------
+function renderTop() {
+  const s = data.summary;
+  $("asof").textContent = (data.synced_at ? `PO data as of ${fmtDate(data.synced_at, true)} · ` : "") + `Updated ${ago(data.now)}`;
+  const tiles = [
+    ["Overdue lines", n(s.lines), `across ${n(s.pos)} purchase orders`, "blue", "lines"],
+    ["Vendors affected", n(s.vendors), `${(s.lines / Math.max(s.vendors, 1)).toFixed(1)} lines per vendor on average`, "violet", "vendors"],
+    ["Over 30 days late", n(s.over_30), `${pct(s.over_30, s.lines)}% of overdue lines`, "red", "alert"],
+    ["Oldest line", `${n(s.max_od)} <span style="font-size:15px;font-weight:600;color:var(--ink-3)">days</span>`, "longest overdue PO line", "orange", "hourglass"],
+    [`Cleared · ${s.cleared_days} days`, n(s.cleared_recent), "lines delivered or closed", "green", "check"],
+  ];
+  $("kpis").innerHTML = tiles.map(([l, v, note, c, ic]) =>
+    `<div class="card kpi" style="--k:var(--${c});--k-soft:var(--${c}-soft)"><span class="label">${esc(l)}</span><span class="value">${v}</span>
+      <span class="note">${note}</span><span class="ic">${icon(ic)}</span></div>`).join("");
+
+  const total = s.lines || 1;
+  $("pipe").setAttribute("aria-label", data.stages.map((st, i) => `${st}: ${s.by_stage[i]}`).join(", "));
+  $("pipe").innerHTML = data.stages.map((st, i) => s.by_stage[i]
+    ? `<div class="seg" data-stage="${i}" style="flex:${s.by_stage[i]};background:var(--stage-${i})" data-tip="<b>${esc(st)}</b><br>${n(s.by_stage[i])} lines · ${pct(s.by_stage[i], total)}%"></div>` : "").join("");
+  const hints = ["Waiting for Scenario 1", "Scenario 1 sent", "Scenario 2 sent", "Scenario 3 done", "Final step"];
+  $("stages").innerHTML = data.stages.map((st, i) => `
+    <button class="stage" data-stage="${i}" aria-pressed="${state.stage === String(i)}" style="--sc:var(--stage-${i})">
+      <span class="top"><i class="sw" style="background:var(--stage-${i})"></i>${hints[i]}</span>
+      <span class="name">${esc(st)}</span>
+      <span><span class="cnt num">${n(s.by_stage[i])}</span><span class="pct">${pct(s.by_stage[i], total)}%</span></span>
+    </button>`).join("");
+  $("legend").innerHTML = data.scenarios.map((sc, i) => `<div class="lg"><span class="no">${i + 1}</span><b>${esc(sc.name)} · ${esc(sc.title)}</b><span>${esc(sc.who)}</span></div>`).join("")
+    + `<div class="lg meet"><span class="no">${icon("meeting")}</span><b>Then · Management meeting</b><span>Buyer and SCM head meet the vendor</span></div>`;
+  $("pilotNote").hidden = !(data.pilot_mode && lines.some((l) => l.on_hold));
+
+  // filter options
+  const vendors = [...new Map(data.pos.map((p) => [p.vendor_code, p.vendor_name])).entries()].sort((a, b) => a[1].localeCompare(b[1]));
+  $("vendorList").innerHTML = vendors.map(([c, name]) => `<option value="${esc(name)} (${esc(c)})"></option>`).join("");
+  const buyers = [...new Set(data.pos.map((p) => p.buyer || (p.purchasing_group ? "PG " + p.purchasing_group : "")).filter(Boolean))].sort();
+  $("fBuyer").innerHTML = `<option value="">All buyers</option>` + buyers.map((b) => `<option>${esc(b)}</option>`).join("");
+  const counts = AGES.map(() => 0);
+  for (const l of lines) counts[ageBucket(l.od)]++;
+  $("ages").innerHTML = `<button class="chipbtn" data-age="" aria-pressed="${!state.age}">All</button>` + AGES.map((a, i) =>
+    `<button class="chipbtn" data-age="${a.key}" aria-pressed="${state.age === a.key}"><i class="dot sev-${i}"></i>${a.label} <span class="c num">${n(counts[i])}</span></button>`).join("");
+}
+
+// ---------- filter + sort ----------
+const buyerOf = (p) => p.buyer || (p.purchasing_group ? "PG " + p.purchasing_group : "");
+function vendorCodeFromInput(v) { const m = /\(([^()]*)\)\s*$/.exec(v); return m ? m[1] : v.trim(); }
+function filtered() {
+  const q = state.q.trim().toLowerCase(), vc = vendorCodeFromInput(state.vendor), age = AGES.find((a) => a.key === state.age);
+  return lines.filter((l) => (!q || l.hay.includes(q))
+    && (!vc || l.p.vendor_code === vc)
+    && (!state.buyer || buyerOf(l.p) === state.buyer)
+    && (state.stage === "" || l.stage === +state.stage)
+    && (!state.next || l.next.kind === state.next)
+    && (!age || (l.od > age.min && l.od <= age.max)));
+}
+const SORTS = {
+  po: (l) => l.p.po + "/" + String(l.item).padStart(6, "0"),
+  vendor: (l) => l.p.vendor_name,
+  material: (l) => l.desc || l.material,
+  pending: (l) => qty(l.pending),
+  due: (l) => -l.od,
+  od: (l) => l.od,
+  s1: (l) => STATE_RANK[l.scenarios[0].state] * 1e13 + (l.scenarios[0].at ? Date.parse(l.scenarios[0].at) : 0),
+  s2: (l) => STATE_RANK[l.scenarios[1].state] * 1e13 + (l.scenarios[1].at ? Date.parse(l.scenarios[1].at) : 0),
+  s3: (l) => STATE_RANK[l.scenarios[2].state] * 1e13 + (l.scenarios[2].at ? Date.parse(l.scenarios[2].at) : 0),
+  next: (l) => l.next.rank * 1e13 + (l.next.at ? Date.parse(l.next.at) : 0),
+  stage: (l) => l.stage,
+};
+const collator = new Intl.Collator("en", { numeric: true, sensitivity: "base" });
+function sorted(list) {
+  const key = SORTS[state.sort] || SORTS.od, dir = state.dir === "asc" ? 1 : -1;
+  return list.map((l) => [key(l), l]).sort((a, b) => {
+    const c = typeof a[0] === "string" ? collator.compare(a[0], b[0]) : a[0] - b[0];
+    return c * dir || b[1].od - a[1].od || collator.compare(a[1].key, b[1].key);
+  }).map((x) => x[1]);
+}
+
+// ---------- table ----------
+const COLS = [
+  { key: "po", label: "PO · Item", view: "lines" },
+  { key: "po", label: "Item / Line", view: "po" },
+  { key: "vendor", label: "Vendor", view: "lines" },
+  { key: "material", label: "Material" },
+  { key: "pending", label: "Pending qty", r: true },
+  { key: "due", label: "Due date" },
+  { key: "od", label: "Days late", r: true, first: "desc" },
+  { key: "s1", label: "Scenario 1", sub: "Vendor reminder" },
+  { key: "s2", label: "Scenario 2", sub: "Vendor management" },
+  { key: "s3", label: "Scenario 3", sub: "Buyer call" },
+  { key: "next", label: "Next step" },
+];
+const cols = () => COLS.filter((c) => !c.view || c.view === state.view);
+
+function renderHead() {
+  $("thead").innerHTML = "<tr>" + cols().map((c) => {
+    const on = state.sort === c.key;
+    const aria = on ? (state.dir === "asc" ? "ascending" : "descending") : "none";
+    return `<th class="${c.r ? "r" : ""}" aria-sort="${aria}" scope="col"><button class="sortbtn" data-sort="${c.key}" data-first="${c.first || "asc"}">
+      ${c.r ? `<span class="arrow">${on && state.dir === "asc" ? "▲" : "▼"}</span>` : ""}<span>${esc(c.label)}${c.sub ? `<small>${esc(c.sub)}</small>` : ""}</span>
+      ${c.r ? "" : `<span class="arrow">${on && state.dir === "asc" ? "▲" : "▼"}</span>`}</button></th>`;
+  }).join("") + "</tr>";
+}
+function lineRow(l) {
+  const cells = cols().map((c) => {
+    switch (c.label) {
+      case "PO · Item": return `<td><div class="cell-main num">${esc(l.p.po)}</div><div class="cell-sub">Item ${esc(l.item || "-")} · Line ${esc(l.sched || "1")}</div></td>`;
+      case "Item / Line": return `<td class="num">${esc(l.item || "-")} <span class="muted">/ ${esc(l.sched || "1")}</span></td>`;
+      case "Vendor": return `<td class="vend"><div class="cell-main" title="${esc(l.p.vendor_name)}">${esc(l.p.vendor_name)}</div><div class="cell-sub">${esc(l.p.vendor_code)}${buyerOf(l.p) ? " · " + esc(buyerOf(l.p)) : ""}</div></td>`;
+      case "Material": return `<td class="mat"><div class="cell-main" title="${esc(l.desc || l.material)}">${esc(l.desc || l.material || "-")}</div>${l.desc && l.material ? `<div class="cell-sub">${esc(l.material)}</div>` : ""}</td>`;
+      case "Pending qty": return `<td class="r num">${esc(l.pending || "-")} <span class="muted">${esc(l.uom)}</span></td>`;
+      case "Due date": return `<td class="num" style="white-space:nowrap">${esc(l.due)}</td>`;
+      case "Days late": return `<td class="r">${lateCell(l.od)}</td>`;
+      case "Next step": return `<td>${nextPill(l.next)}</td>`;
+      default: return `<td>${scenarioCell(l.scenarios[+c.key.slice(1) - 1])}</td>`;
+    }
+  }).join("");
+  return `<tr class="line" tabindex="0" data-key="${esc(l.key)}">${cells}</tr>`;
+}
+function groupRow(p, ls) {
+  const open = !collapsed.has(p.po);
+  const maxOd = Math.max(...ls.map((l) => l.od));
+  return `<tr class="group" data-po="${esc(p.po)}" aria-expanded="${open}" tabindex="0" style="--sc:var(--stage-${p.stage})"><td colspan="${cols().length}"><div class="gh">
+    <span style="display:flex;gap:8px;align-items:center">${icon("chev").replace('class="i"', 'class="i chev"')}<span class="po num">PO ${esc(p.po)}</span></span>
+    <span class="vendor">${esc(p.vendor_name)} <span class="muted" style="font-weight:500">${esc(p.vendor_code)}</span></span>
+    ${buyerOf(p) ? `<span class="meta">Buyer: ${esc(buyerOf(p))}</span>` : ""}
+    ${p.po_date ? `<span class="meta">PO date ${esc(p.po_date)}</span>` : ""}
+    <span class="push">
+      <span class="meta">${ls.length}${ls.length !== p.lines.length ? ` of ${p.lines.length}` : ""} line${p.lines.length > 1 ? "s" : ""}</span>
+      <span class="meta">up to ${lateCell(maxOd)} days late</span>
+      <span class="stagepill"><i class="dot" style="background:var(--stage-${p.stage});width:10px;height:10px;border-radius:3px"></i>${esc(data.stages[p.stage])}</span>
+    </span></div></td></tr>`;
+}
+
+function renderTable() {
+  renderHead();
+  document.querySelectorAll("#table tbody").forEach((t) => t.remove());
+  const list = sorted(filtered());
+  let html = "", total, unit, from, to;
+  if (state.view === "po") {
+    const groups = new Map();
+    for (const l of list) { if (!groups.has(l.p.po)) groups.set(l.p.po, []); groups.get(l.p.po).push(l); }
+    const all = [...groups.values()];
+    total = all.length; unit = "purchase orders";
+    clampPage(total);
+    from = (state.page - 1) * state.size; to = Math.min(from + state.size, total);
+    html = all.slice(from, to).map((ls) => `<tbody>${groupRow(ls[0].p, ls)}${collapsed.has(ls[0].p.po) ? "" : ls.map(lineRow).join("")}</tbody>`).join("");
+    $("range").textContent = total ? `${n(from + 1)}–${n(to)} of ${n(total)} POs · ${n(list.length)} lines` : "";
+    $("toggleAll").hidden = !total;
+    $("toggleAll").textContent = collapsed.size ? "Expand all" : "Collapse all";
+  } else {
+    total = list.length; unit = "lines";
+    clampPage(total);
+    from = (state.page - 1) * state.size; to = Math.min(from + state.size, total);
+    html = `<tbody>${list.slice(from, to).map(lineRow).join("")}</tbody>`;
+    $("range").textContent = total ? `${n(from + 1)}–${n(to)} of ${n(total)} lines` : "";
+    $("toggleAll").hidden = true;
+  }
+  if (!total) {
+    const any = lines.length > 0;
+    html = `<tbody><tr><td colspan="${cols().length}" class="empty"><b>${any ? "No lines match your filters" : "No overdue PO lines"}</b>
+      ${any ? `Try a different search or <button class="link" data-clear>clear all filters</button>.` : "Every purchase order is on schedule."}</td></tr></tbody>`;
+  }
+  $("table").insertAdjacentHTML("beforeend", html);
+  $("table").classList.toggle("compact", density === "compact");
+  const pages = Math.max(1, Math.ceil(total / state.size));
+  $("pg").textContent = `Page ${n(state.page)} of ${n(pages)}`;
+  $("first").disabled = $("prev").disabled = state.page <= 1;
+  $("next").disabled = $("last").disabled = state.page >= pages;
+  $("table").dataset.pages = pages;
+  $("table").setAttribute("aria-label", `${n(total)} ${unit}`);
+}
+function clampPage(total) { state.page = Math.min(Math.max(1, state.page), Math.max(1, Math.ceil(total / state.size))); }
+
+function renderControls() {
+  // only write changed values, so the caret does not jump while someone is typing
+  for (const [id, v] of [["fQ", state.q], ["fVendor", state.vendor], ["fBuyer", state.buyer], ["fNext", state.next], ["fSize", String(state.size)]])
+    if ($(id).value !== v) $(id).value = v;
+  document.querySelectorAll("[data-view]").forEach((b) => b.setAttribute("aria-pressed", b.dataset.view === state.view));
+  document.querySelectorAll("[data-density]").forEach((b) => b.setAttribute("aria-pressed", b.dataset.density === density));
+  const chips = [];
+  if (state.q) chips.push(["q", `Search: “${state.q}”`]);
+  if (state.vendor) chips.push(["vendor", "Vendor: " + state.vendor]);
+  if (state.buyer) chips.push(["buyer", "Buyer: " + state.buyer]);
+  if (state.stage !== "") chips.push(["stage", "Stage: " + data.stages[+state.stage]]);
+  if (state.next) chips.push(["next", "Next step: " + $("fNext").selectedOptions[0].text]);
+  if (state.age) chips.push(["age", "Days late: " + AGES.find((a) => a.key === state.age).label.replace(" days", "")]);
+  $("active").hidden = !chips.length;
+  $("active").innerHTML = `<span class="muted">Filters:</span>` + chips.map(([k, t]) =>
+    `<span class="tag">${esc(t)}<button data-unset="${k}" aria-label="Remove filter ${esc(t)}">✕</button></span>`).join("")
+    + `<button class="link" data-clear style="margin-left:6px">Clear all</button>`;
+}
+
+function writeUrl() {
+  const u = new URLSearchParams();
+  if (env === "test") u.set("env", "test");
+  for (const [k, v] of Object.entries(state)) if (v !== DEFAULTS[k] && v !== "") u.set(k, v);
+  history.replaceState(null, "", location.pathname + (u.toString() ? "?" + u : ""));
+  try { localStorage.setItem("dash_prefs", JSON.stringify({ view: state.view, size: state.size, density })); } catch (e) {}
+}
+function renderAll() { renderTop(); renderControls(); renderTable(); writeUrl(); }
+function update(patch, keepPage = false) {
+  Object.assign(state, patch);
+  if (!keepPage) state.page = 1;
+  renderControls(); renderTable(); writeUrl();
+  // stage and age buttons live in the top section
+  document.querySelectorAll(".stage").forEach((b) => b.setAttribute("aria-pressed", state.stage === b.dataset.stage));
+  document.querySelectorAll("[data-age]").forEach((b) => b.setAttribute("aria-pressed", state.age === b.dataset.age));
+}
+
+// ---------- events ----------
+let qTimer;
+$("fQ").addEventListener("input", (e) => { clearTimeout(qTimer); qTimer = setTimeout(() => update({ q: e.target.value }), 150); });
+$("fVendor").addEventListener("change", (e) => update({ vendor: e.target.value.trim() }));
+$("fVendor").addEventListener("input", (e) => { if (!e.target.value) update({ vendor: "" }); else if ($("vendorList").querySelector(`option[value="${CSS.escape(e.target.value)}"]`)) update({ vendor: e.target.value }); });
+$("fBuyer").addEventListener("change", (e) => update({ buyer: e.target.value }));
+$("fNext").addEventListener("change", (e) => update({ next: e.target.value }));
+$("fSize").addEventListener("change", (e) => update({ size: +e.target.value }));
+document.addEventListener("click", (e) => {
+  const t = e.target.closest("button, .seg, tr.line, tr.group");
+  if (!t || !data) return;
+  if (t.dataset.sort) {
+    const same = state.sort === t.dataset.sort;
+    return update({ sort: t.dataset.sort, dir: same ? (state.dir === "asc" ? "desc" : "asc") : t.dataset.first });
+  }
+  if (t.dataset.stage !== undefined) return update({ stage: state.stage === t.dataset.stage ? "" : t.dataset.stage });
+  if (t.dataset.age !== undefined) return update({ age: t.dataset.age });
+  if (t.dataset.view) return update({ view: t.dataset.view });
+  if (t.dataset.density) { density = t.dataset.density; return update({}, true); }
+  if (t.dataset.unset) return update({ [t.dataset.unset]: DEFAULTS[t.dataset.unset] });
+  if (t.dataset.clear !== undefined) return update({ q: "", vendor: "", buyer: "", stage: "", next: "", age: "" });
+  if (t.id === "toggleAll") {
+    if (collapsed.size) collapsed.clear(); else for (const l of filtered()) collapsed.add(l.p.po);
+    return update({}, true);
+  }
+  if (t.matches("tr.group")) { collapsed.has(t.dataset.po) ? collapsed.delete(t.dataset.po) : collapsed.add(t.dataset.po); return update({}, true); }
+  if (t.matches("tr.line")) return openDrawer(t.dataset.key);
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "/" && !/INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName)) { e.preventDefault(); $("fQ").focus(); }
+  if (e.key === "Escape" && !$("drawer").hidden) closeDrawer();
+  if (e.key === "Enter" && e.target.matches("tr.line, tr.group")) e.target.click();
+});
+$("first").onclick = () => update({ page: 1 }, true);
+$("prev").onclick = () => update({ page: state.page - 1 }, true);
+$("next").onclick = () => update({ page: state.page + 1 }, true);
+$("last").onclick = () => update({ page: +$("table").dataset.pages }, true);
+
+// pipeline tooltip
+$("pipe").addEventListener("mousemove", (e) => {
+  const seg = e.target.closest(".seg"), tip = $("tip");
+  if (!seg) { tip.hidden = true; return; }
+  tip.innerHTML = seg.dataset.tip; tip.hidden = false;
+  tip.style.left = Math.min(e.clientX + 12, innerWidth - tip.offsetWidth - 8) + "px"; tip.style.top = e.clientY + 14 + "px";
+});
+$("pipe").addEventListener("mouseleave", () => { $("tip").hidden = true; });
+
+// ---------- line details ----------
+function openDrawer(key) {
+  const l = lines.find((x) => x.key === key);
+  if (!l) return;
+  lastFocus = document.activeElement;
+  const p = l.p;
+  $("dKicker").textContent = `PO ${p.po} · Item ${l.item || "-"} · Line ${l.sched || "1"}`;
+  $("dTitle").textContent = l.desc || l.material || "PO line";
+  const steps = data.scenarios.map((sc, i) => ({ ...sc, s: l.scenarios[i] }));
+  const meetingState = l.meeting ? "done" : "upcoming";
+  $("dBody").innerHTML = `
+    <section>
+      <h3>Status</h3>
+      <div class="statusbox">${nextPill(l.next)}
+        <span class="stagepill"><i class="dot" style="background:var(--stage-${l.stage});width:10px;height:10px;border-radius:3px"></i>${esc(l.stage_name)}</span></div>
+    </section>
+    <section>
+      <h3>Line</h3>
+      <dl class="facts">
+        <div><dt>Days late</dt><dd>${lateCell(l.od)}</dd></div>
+        <div><dt>Due date</dt><dd>${esc(l.due)}</dd></div>
+        <div><dt>Pending qty</dt><dd class="num">${esc(l.pending || "-")} ${esc(l.uom)}</dd></div>
+        <div><dt>Material code</dt><dd>${esc(l.material || "-")}</dd></div>
+        ${l.first_alerted ? `<div><dt>First alerted</dt><dd>${esc(l.first_alerted)}</dd></div>` : ""}
+      </dl>
+    </section>
+    <section>
+      <h3>Escalation</h3>
+      <ol class="tl">
+        ${steps.map((st) => `<li class="${st.s.state}"><span class="node">${st.s.state === "done" ? icon("done") : `<span style="font-weight:700;font-size:12px">${st.name.slice(-1)}</span>`}</span>
+          <div><div class="t">${esc(st.name)} · ${esc(st.title)}</div><div class="w">${esc(st.who)}</div><div class="s">${scenarioCell(st.s)}</div></div></li>`).join("")}
+        <li class="${meetingState}"><span class="node">${icon("meeting")}</span>
+          <div><div class="t">Management meeting</div><div class="w">Buyer and SCM head meet the vendor</div>
+          <div class="s">${l.meeting ? `<span class="pill meeting">${icon("meeting")}Scheduled</span>` : `<span class="muted" style="font-size:13px">After Scenario 3</span>`}</div></div></li>
+      </ol>
+    </section>
+    <section>
+      <h3>Purchase order</h3>
+      <dl class="facts">
+        <div class="wide"><dt>Vendor</dt><dd>${esc(p.vendor_name)} <span class="muted" style="font-weight:500">(${esc(p.vendor_code)})</span></dd></div>
+        <div><dt>PO number</dt><dd class="num">${esc(p.po)}</dd></div>
+        <div><dt>PO date</dt><dd>${esc(p.po_date || "-")}</dd></div>
+        <div><dt>Buyer</dt><dd>${esc(buyerOf(p) || "-")}</dd></div>
+        <div><dt>Overdue lines in this PO</dt><dd>${p.lines.length}</dd></div>
+      </dl>
+      <p style="margin-top:14px"><button class="link" id="dVendor">Show all lines of this vendor →</button></p>
+    </section>`;
+  $("dVendor").onclick = () => { closeDrawer(); update({ vendor: `${p.vendor_name} (${p.vendor_code})` }); };
+  $("scrim").hidden = $("drawer").hidden = false;
+  document.body.style.overflow = "hidden";
+  $("dClose").focus();
+}
+function closeDrawer() {
+  $("scrim").hidden = $("drawer").hidden = true;
+  document.body.style.overflow = "";
+  lastFocus?.focus?.();
+}
+$("dClose").onclick = closeDrawer;
+$("scrim").onclick = closeDrawer;
+$("drawer").addEventListener("keydown", (e) => {  // keep Tab inside the panel
+  if (e.key !== "Tab") return;
+  const f = [...$("drawer").querySelectorAll("button, [href], [tabindex]")].filter((x) => !x.disabled);
+  if (!f.length) return;
+  if (e.shiftKey && document.activeElement === f[0]) { e.preventDefault(); f[f.length - 1].focus(); }
+  else if (!e.shiftKey && document.activeElement === f[f.length - 1]) { e.preventDefault(); f[0].focus(); }
+});
+
+// ---------- CSV of every matching line, in the current sort ----------
+$("csv").onclick = () => {
+  if (!data) return;
+  const label = (s) => ({ done: (s.simulated ? "Simulated " : "Sent ") + fmtDate(s.at), due: "Due now", scheduled: "Scheduled " + fmtDate(s.at, true), on_hold: "On hold" }[s.state] || "Not yet");
+  const head = ["PO", "Item", "Line", "PO date", "Vendor code", "Vendor", "Buyer", "Material", "Description", "Pending qty", "UOM",
+    "Due date", "Days late", "Stage", "Scenario 1 - Vendor reminder", "Scenario 2 - Vendor management", "Scenario 3 - Buyer call", "Next step"];
+  const rows = sorted(filtered()).map((l) => [l.p.po, l.item, l.sched, l.p.po_date, l.p.vendor_code, l.p.vendor_name, buyerOf(l.p),
+    l.material, l.desc, l.pending, l.uom, l.due, l.od, l.stage_name, ...l.scenarios.map(label), l.next.text]);
+  const csv = [head, ...rows].map((r) => r.map((c) => `"${String(c ?? "").replace(/"/g, '""')}"`).join(",")).join("\r\n");
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob(["﻿" + csv], { type: "text/csv" }));
+  a.download = `overdue-po-${env}-${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+};
+
+setInterval(() => { if (data) $("asof").textContent = (data.synced_at ? `PO data as of ${fmtDate(data.synced_at, true)} · ` : "") + `Updated ${ago(data.now)}`; }, 30000);
+skeleton();
+load();
+</script>
+</body>
+</html>

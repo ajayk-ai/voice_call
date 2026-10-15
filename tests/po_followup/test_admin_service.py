@@ -2,8 +2,8 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from po_followup import service
-from po_followup.run import ZONE
+from backend.po_followup.services import followup as service
+from backend.po_followup.services.run import ZONE
 
 NOW = datetime(2026, 10, 8, 15, 0, tzinfo=ZONE)
 

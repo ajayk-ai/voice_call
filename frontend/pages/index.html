@@ -4,10 +4,11 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>PO Voice Agent</title>
+<link rel="stylesheet" href="/assets/ui.css">
 <style>
   :root {
     --bg: #f4f6f8; --card: #fff; --fg: #1d242b; --muted: #5d6874; --line: #dde2e7;
-    --accent: #1f6fb2; --accent-fg: #fff; --stop: #c2412d;
+    --accent: #2563eb; --accent-fg: #fff; --stop: #c2412d;
     --me: #e6f0fa; --agent: #f1f3f5; --ok: #2f7d4f;
   }
   @media (prefers-color-scheme: dark) {
@@ -16,8 +17,8 @@
       color-scheme: dark; }
   }
   * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.5 "Segoe UI", system-ui, sans-serif; padding: 24px 16px; }
-  main { max-width: 720px; margin: 0 auto; display: grid; gap: 16px; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.5 var(--font-ui, system-ui); }
+  main { max-width: 720px; margin: 0 auto; padding: 32px 16px 48px; display: grid; gap: 16px; }
   h1 { margin: 0; font-size: 1.5rem; }
   .sub { color: var(--muted); margin: 0; }
   .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 16px; display: grid; gap: 12px; }
@@ -49,21 +50,20 @@
   #callResult { margin: 0; }
   #callResult.ok { color: var(--ok); font-weight: 600; }
   #callResult.err { color: var(--stop); font-weight: 600; }
-  .topnav { max-width: 720px; margin: -8px auto 16px; display: flex; flex-wrap: wrap; gap: 4px 16px; align-items: center; font-size: .9rem; }
-  .topnav a { color: var(--muted); text-decoration: none; font-weight: 600; padding: 2px 0; border-bottom: 2px solid transparent; }
-  .topnav a:hover, .topnav a[aria-current="page"] { color: var(--fg); border-bottom-color: var(--accent); }
-  .topnav .brand { color: var(--fg); margin-right: 8px; }
   .notice { margin: 0; padding: 8px 12px; border-radius: 8px; border: 1px solid var(--line); color: var(--stop); font-size: .9rem; }
 </style>
 </head>
 <body>
-<nav class="topnav" aria-label="Pages">
-  <a class="brand" href="/">PO Agent</a>
-  <a href="/?tab=phone" id="nav-phone">Normal call</a>
-  <a href="/?tab=browser" id="nav-browser">Voice agent</a>
-  <a href="/admin">Follow-up admin</a>
-  <a href="/docs">API docs</a>
-</nav>
+<nav class="gnav" aria-label="Pages"><div class="gnav-in">
+    <a class="brand" href="/"><span class="mark" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 7l9-4 9 4-9 4-9-4z"/><path d="M3 7v10l9 4 9-4V7M12 11v10"/></svg></span><span class="word"><b>PO Agent</b><small>Supply chain follow-up</small></span></a>
+    <div class="links">
+      <a href="/dashboard">Dashboard</a>
+      <a href="/?tab=phone" id="nav-phone">Normal call</a>
+      <a href="/?tab=browser" id="nav-browser">Voice agent</a>
+      <a href="/admin">Follow-up admin</a>
+      <a href="/docs" class="end">API docs</a>
+    </div>
+</div></nav>
 <main>
   <div>
     <h1>PO Voice Agent</h1>

@@ -12,12 +12,12 @@ from fastapi.responses import JSONResponse
 from teler import AsyncClient as AsyncTelerClient
 from teler.exceptions import TelerException
 
-from monitoring.tracing import mask_phones, traceable
+from backend.core.tracing import mask_phones, traceable
 
-from .. import call_context
-from ..bridge import public_url
-from ..config import FREJUN_PHONE_NUMBER, TELER_API_KEY, TELER_TIMEOUT_SECONDS
-from ..security import call_limiter, check_password, client_ip, mask_number
+from backend.voice_agent import call_context
+from backend.voice_agent.bridge import public_url
+from backend.voice_agent.config import FREJUN_PHONE_NUMBER, TELER_API_KEY, TELER_TIMEOUT_SECONDS
+from backend.voice_agent.security import call_limiter, check_password, client_ip, mask_number
 
 log = logging.getLogger("voice_agent.calls")
 router = APIRouter()

@@ -9,7 +9,7 @@ import os
 
 from google.oauth2.service_account import Credentials
 
-from . import env  # noqa: F401 - loads .env
+from backend.core import env  # noqa: F401 - loads .env
 
 
 class GoogleNotConfigured(RuntimeError):

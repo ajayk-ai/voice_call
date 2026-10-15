@@ -1,0 +1,64 @@
+/* Shared look for every page: fonts, the global top bar and base typography.
+   Each page keeps its own layout and colours in its own <style>; this file is linked first. */
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap");
+
+:root {
+  --font-ui: "Inter", "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --font-display: "Plus Jakarta Sans", "Inter", "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
+  --gnav-bg: #0b1220;
+  --gnav-bg-2: #111c33;
+  --gnav-ink: rgb(255 255 255 / .72);
+  --gnav-ink-strong: #ffffff;
+  --brand-1: #3b82f6;
+  --brand-2: #7c5cff;
+}
+
+body {
+  font-family: var(--font-ui);
+  font-feature-settings: "cv11", "ss01", "ss03";
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+h1, h2, .display { font-family: var(--font-display); letter-spacing: -.015em; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+}
+
+/* ---------- global top bar (same on every page) ---------- */
+.gnav {
+  background: var(--gnav-bg);
+  color: var(--gnav-ink);
+  border-bottom: 1px solid rgb(255 255 255 / .06);
+  position: relative;
+  z-index: 10;
+}
+.gnav-in {
+  max-width: 1440px; margin: 0 auto; padding: 0 24px; height: 60px;
+  display: flex; align-items: center; gap: 28px;
+}
+.gnav .brand { display: flex; align-items: center; gap: 10px; color: var(--gnav-ink-strong); text-decoration: none; flex: none; }
+.gnav .mark {
+  width: 32px; height: 32px; border-radius: 9px; display: grid; place-items: center; color: #fff;
+  background: linear-gradient(135deg, var(--brand-1), var(--brand-2));
+  box-shadow: 0 0 0 1px rgb(255 255 255 / .12) inset, 0 6px 16px rgb(59 130 246 / .35);
+}
+.gnav .mark svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.gnav .word { display: grid; line-height: 1.1; }
+.gnav .word b { font-family: var(--font-display); font-size: 15px; font-weight: 700; letter-spacing: -.01em; }
+.gnav .word small { font-size: 11px; color: rgb(255 255 255 / .5); font-weight: 500; letter-spacing: .02em; }
+.gnav .links { display: flex; gap: 4px; align-items: center; overflow-x: auto; scrollbar-width: none; flex: 1; min-width: 0; }
+.gnav .links::-webkit-scrollbar { display: none; }
+.gnav .links a {
+  color: var(--gnav-ink); text-decoration: none; font-size: 13.5px; font-weight: 500; white-space: nowrap;
+  padding: 7px 12px; border-radius: 8px; transition: background .15s, color .15s;
+}
+.gnav .links a:hover { color: var(--gnav-ink-strong); background: rgb(255 255 255 / .07); }
+.gnav .links a[aria-current="page"] { color: var(--gnav-ink-strong); background: rgb(255 255 255 / .12); font-weight: 600; }
+.gnav .links .end { margin-left: auto; }
+.gnav a:focus-visible { outline: 2px solid #93c5fd; outline-offset: 2px; }
+@media (max-width: 720px) {
+  .gnav-in { padding: 0 16px; gap: 16px; }
+  .gnav .word small { display: none; }
+}

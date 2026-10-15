@@ -3,8 +3,8 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from po_followup import admin
-from voice_agent.app import app
+from backend.po_followup.api import admin
+from backend.voice_agent.app import app
 
 client = TestClient(app)
 CODE = {"X-Admin-Code": "adm"}
@@ -65,7 +65,8 @@ def test_invalid_setting_value_is_400(code, ready):
 
 
 def test_direct_vendor_call(code, ready, monkeypatch):
-    from po_followup import agent_call, store
+    from backend.po_followup.integrations import agent_call
+    from backend.po_followup.db import store
 
     class Master:
         def __init__(self, env):

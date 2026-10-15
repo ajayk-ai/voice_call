@@ -1,42 +1,56 @@
 # FreJun + Gemini Live Voice Agent (Python) - End-to-End VS Code Setup
 
-Phone call -> FreJun (Teler) Media Stream -> FastAPI server (`voice_agent/`) -> Gemini Live (native audio: listens, thinks, speaks in English / Hindi / Tamil) -> back to the caller.
+Phone call -> FreJun (Teler) Media Stream -> FastAPI server (`backend/voice_agent/`) -> Gemini Live (native audio: listens, thinks, speaks in English / Hindi / Tamil) -> back to the caller.
 
 ## Project layout
+Backend (Python, one package) and frontend (HTML/CSS served by the backend) are kept apart:
 ```
-main.py                  # entry point for `uvicorn main:app`; imports voice_agent.app
-voice_agent/             # the web service: voice agent + PO follow-up admin, one FastAPI app
-  app.py                 #   FastAPI app: wires routers (incl. po_followup admin), error handlers, lifespan
-  config.py              #   settings from .env / Render env vars, logging
-  prompts.py             #   what the agent says (system prompt, greeting)
-  gemini.py              #   Gemini Live client and session config
-  audio.py               #   24 kHz -> 8 kHz downsampler for the phone line
-  security.py            #   access code, rate limit, number masking
-  bridge.py              #   shared websocket bridge helpers, public URL
-  routes/
-    pages.py             #   GET /, /test, /health, /api/status
-    calls.py             #   POST /api/call (place call), /flow, /call-status (FreJun webhooks)
-    media.py             #   WS /media  (FreJun phone audio <-> Gemini)
-    browser.py           #   WS /test-ws (browser mic <-> Gemini)
-  call_context.py        #   signed call tickets (/media only streams calls we placed) + vendor call scripts
-  static/index.html      #   the web page
-common/                  # shared by every package: .env + OS certificate store (env.py), Google credentials (google_auth.py)
-po_followup/             # daily WhatsApp escalation of overdue POs (port of the n8n workflow)
-  escalation.py          #   the rules: pending lines, levels, cleared lines, Phone_Master, dedupe
-  messages.py            #   WhatsApp texts, recipients, Call/Meeting task rows, Alert_Log rows
-  run.py                 #   one daily run, end to end
-  sheets.py / whatsapp.py#   Google Sheets (delegation) and UltraMsg clients
-  replies.py             #   POST /webhooks/ultramsg: stores vendor replies (served by the web app)
-  store.py               #   PostgreSQL storage, one database per environment (prod / test)
-  service.py             #   runs, run history, settings, automatic scheduler
-  admin.py + static/     #   admin page GET /admin + API /admin/api/* (router mounted in voice_agent/app.py)
-  cli.py                 #   python -m po_followup admin | run | scheduler | copy-prod-to-test | ...
-monitoring/tracing.py    # LangSmith tracing shared by voice_agent and po_followup
-po_sync/                 # local-only: live Google Sheet -> PostgreSQL mirror (python -m po_sync)
-scripts/make_call.py     # place a test call from your machine
-tests/                   # pytest: `.venv/Scripts/python -m pytest`
-.github/workflows/ci.yml # CI on every push / PR: `uvx ruff check .` + pytest
+main.py                      # entry point: `uvicorn main:app` (Render start command)
+backend/
+  core/                      # shared by every package
+    env.py                   #   .env + OS certificate store, env readers
+    google_auth.py           #   Google service-account credentials (domain-wide delegation)
+    tracing.py               #   LangSmith tracing
+    frontend.py              #   where the frontend files are (frontend/pages, frontend/assets)
+  voice_agent/               # the web service: voice agent + PO follow-up pages, one FastAPI app
+    app.py                   #   FastAPI app: routers, /assets, error handlers, lifespan
+    config.py                #   settings from .env / Render env vars, logging
+    prompts.py               #   what the agent says (system prompt, greeting)
+    gemini.py                #   Gemini Live client and session config
+    audio.py                 #   24 kHz -> 8 kHz downsampler for the phone line
+    security.py              #   access code, rate limit, number masking
+    bridge.py                #   shared websocket bridge helpers, public URL
+    call_context.py          #   signed call tickets (/media only streams calls we placed) + vendor call scripts
+    turns.py                 #   per-turn transcript + latency recording
+    routes/                  #   pages.py (/, /health, /api/status), calls.py (/api/call, FreJun webhooks),
+                             #   media.py (WS /media), browser.py (WS /test-ws)
+  po_followup/               # daily WhatsApp escalation of overdue POs (port of the n8n workflow)
+    api/                     #   HTTP layer (FastAPI routers)
+      admin.py               #     GET /admin + /admin/api/*
+      dashboard.py           #     GET /dashboard + /dashboard/api/{env} (read-only business view)
+      replies.py             #     POST /webhooks/ultramsg: stores vendor WhatsApp replies
+    models/                  #   Pydantic models: admin.py (request bodies), dashboard.py (dashboard response)
+    domain/                  #   pure rules, no I/O
+      escalation.py          #     pending lines, levels, cleared lines, Phone_Master, dedupe
+      messages.py            #     WhatsApp texts, recipients, Call/Meeting task rows, Alert_Log rows
+    services/                #   use cases
+      run.py                 #     one daily run, end to end
+      followup.py            #     runs, run history, settings, automatic scheduler, vendor tests
+      trace.py               #     per-vendor Scenario 1 -> 2 -> 3 -> meeting trace
+      dashboard.py           #     overdue PO lines + Scenario 1/2/3 status report
+    integrations/            #   outside systems: sheets.py, whatsapp.py (UltraMsg), meet.py, agent_call.py
+    db/store.py              #   PostgreSQL storage, one database per environment (prod / test)
+    config.py, cli.py        #   settings; python -m backend.po_followup admin | run | scheduler | ...
+  po_sync/                   # local-only: live Google Sheet -> PostgreSQL mirror (python -m backend.po_sync)
+frontend/
+  pages/                     # index.html (/), admin.html (/admin), dashboard.html (/dashboard)
+  assets/ui.css              # fonts, top bar, base typography shared by every page (served at /assets/ui.css)
+scripts/make_call.py         # place a test call from your machine
+tests/                       # pytest, one folder per module: core/, voice_agent/, po_followup/
+.github/workflows/ci.yml     # CI on every push / PR: `uvx ruff check .` + pytest
 ```
+Rules of thumb: routers in `api/` stay thin and call `services/`; `domain/` never does I/O; request/response
+shapes live in `models/`; anything a browser loads lives in `frontend/`. Imports are absolute (`from backend.core import env`).
 
 ## 1. Prerequisites
 - Python 3.14+ (`python --version`, see `.python-version`)
@@ -107,17 +121,17 @@ You can still place a call from your machine with `python scripts/make_call.py` 
 - Agent logs/transcripts on Render: open the service -> Logs.
 
 ## Customize
-Edit `PO_FOLLOWUP_PROMPT` and `GREETING_TRIGGER` in `voice_agent/prompts.py` to change what the agent says. Set `GEMINI_MODEL` or `GEMINI_VOICE` env vars to change the model or voice.
+Edit `PO_FOLLOWUP_PROMPT` and `GREETING_TRIGGER` in `backend/voice_agent/prompts.py` to change what the agent says. Set `GEMINI_MODEL` or `GEMINI_VOICE` env vars to change the model or voice.
 ## PO sheet live sync (local)
-`po_sync/` mirrors every tab of the "CE - Pending PO" Google Sheet into its own PostgreSQL database
+`backend/po_sync/` mirrors every tab of the "CE - Pending PO" Google Sheet into its own PostgreSQL database
 (`pending_po`), separate from other projects. It authenticates with a GCP service account using
 domain-wide delegation (impersonating `GOOGLE_DELEGATED_USER`).
 
 1. Put the service account key at `service.json` in this folder (gitignored).
 2. Fill the `GOOGLE_*` and `PO_*` values in `.env` (see `.env.example`).
-3. Install: `uv pip install --python .venv/Scripts/python.exe -r po_sync/requirements.txt`
-4. Run once to test: `.venv/Scripts/python -m po_sync --once`
-5. Keep it live: `.venv/Scripts/python -m po_sync` (re-syncs every `PO_SYNC_INTERVAL_SECONDS`, default 60)
+3. Install: `uv pip install --python .venv/Scripts/python.exe -r backend/po_sync/requirements.txt`
+4. Run once to test: `.venv/Scripts/python -m backend.po_sync --once`
+5. Keep it live: `.venv/Scripts/python -m backend.po_sync` (re-syncs every `PO_SYNC_INTERVAL_SECONDS`, default 60)
 
 What you get:
 - One table per tab in the `sheets` schema, e.g. `sheets.master`, `sheets.phone_master`, `sheets.vendor_replies`.
@@ -128,7 +142,7 @@ What you get:
   Tabs deleted from the sheet are dropped from the mirror.
 
 ## PO follow-up workflow (WhatsApp escalation)
-`po_followup/` is the Python version of the n8n workflow "scm po follow up agent". Same sheet, same tabs, same rules:
+`backend/po_followup/` is the Python version of the n8n workflow "scm po follow up agent". Same sheet, same tabs, same rules:
 a Master row is pending when **OD Days > 0**; each line escalates one level per day, tracked in `Line_Tracker`:
 
 | Level | Who gets WhatsApp | Also |
@@ -147,11 +161,12 @@ The admin page is part of the main web app, next to the call and voice agent pag
 | URL | What |
 |---|---|
 | `/` | Normal call / Voice agent tabs |
+| `/dashboard` | Business dashboard: overdue PO lines and their Scenario 1 / 2 / 3 status (read-only) |
 | `/admin` | PO follow-up admin |
 | `/docs` | API reference (Swagger UI), `/admin/api/*` included |
 
 ```
-.venv/Scripts/python -m po_followup admin      # whole app on http://127.0.0.1:8100 (this PC only) + scheduler
+.venv/Scripts/python -m backend.po_followup admin      # whole app on http://127.0.0.1:8100 (this PC only) + scheduler
 ```
 Or `uvicorn main:app --port 5050`: the scheduler runs there too (set `FOLLOWUP_SCHEDULER=false` to turn it off).
 
@@ -166,6 +181,18 @@ Reliability:
   call cannot block every later run.
 - The Overview's **Health** card (and a banner on every tab) shows a stalled scheduler, failing automatic runs and stuck runs.
 - A vendor test that has not moved for 30 minutes (e.g. the server was off) is stopped instead of resumed.
+
+### Business dashboard
+`/dashboard` is for the business side: no settings, no runs, nothing technical. It lists every overdue PO line in
+Master (OD Days > 0), grouped by PO, with per line: pending qty, due date, days late and the status of
+**Scenario 1** (vendor reminder), **Scenario 2** (vendor management) and **Scenario 3** (buyer call):
+Sent + date, Due now, Due + date/time (waiting for the interval), On hold (pilot mode skips this vendor) or not yet.
+Lines that reached the management meeting are flagged. On top: totals, lines per stage (click to filter),
+search, vendor filter, sorting and a CSV download of the filtered lines. It refreshes every 2 minutes.
+
+Production data by default; `/dashboard?env=test` shows the test database (with a TEST DATA banner).
+Access: set `DASHBOARD_PASSWORD` and give that code to business users; it opens only the dashboard, not the admin.
+The admin code works on the dashboard too.
 
 Access: the admin API needs `ADMIN_PASSWORD` (falls back to `APP_PASSWORD`), sent by the page as `X-Admin-Code`.
 With neither set, only this PC (127.0.0.1, no proxy) can open it. The admin needs PostgreSQL (`psycopg`);
@@ -197,12 +224,12 @@ wait apart (about 4 minutes for 1-minute waits). Each WhatsApp starts with "PILO
 Automatic runs stop when the vendor reaches the meeting step. The server must keep running for the next steps.
 
 Live production runs and automatic live sending in production must be confirmed by typing LIVE.
-The scheduler runs while the admin page process is running (`python -m po_followup scheduler` runs it without the page).
+The scheduler runs while the admin page process is running (`python -m backend.po_followup scheduler` runs it without the page).
 
-The first time, `store.import_sheet_state()` copied the tracker rows n8n wrote in the Google Sheet into production,
+The first time, `backend.po_followup.db.store.import_sheet_state()` copied the tracker rows n8n wrote in the Google Sheet into production,
 so escalation continues where n8n left off.
 
-Command line equivalents: `python -m po_followup run --env test --mode dry`, `copy-prod-to-test`,
+Command line equivalents: `python -m backend.po_followup run --env test --mode dry`, `copy-prod-to-test`,
 `setup-tabs`, `build-phone-master`.
 
 Safety: keep the n8n workflow off, or vendors get messages from both.

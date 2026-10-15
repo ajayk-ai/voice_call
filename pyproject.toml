@@ -21,7 +21,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# Local-only PO sheet sync (python -m po_sync)
+# Local-only PO sheet sync (python -m backend.po_sync)
 sync = [
     "psycopg[binary]>=3.2",
 ]

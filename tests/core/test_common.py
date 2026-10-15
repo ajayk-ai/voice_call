@@ -2,7 +2,8 @@
 
 import pytest
 
-from common import env, google_auth
+from backend.core import env
+from backend.core import google_auth
 
 GOOGLE_VARS = ("GOOGLE_DELEGATED_USER", "GOOGLE_SERVICE_ACCOUNT_JSON", "GOOGLE_SERVICE_ACCOUNT_FILE")
 
@@ -29,7 +30,7 @@ def test_google_credentials_need_user_and_key(monkeypatch):
 def test_sheet_refresh_needs_sheet_id_not_a_key_file(monkeypatch):
     """Servers with only GOOGLE_SERVICE_ACCOUNT_JSON used to fail with KeyError: 'GOOGLE_SERVICE_ACCOUNT_FILE'."""
     pytest.importorskip("psycopg")
-    from po_followup import service
+    from backend.po_followup.services import followup as service
 
     monkeypatch.delenv("PO_SHEET_ID", raising=False)
     with pytest.raises(RuntimeError, match="PO_SHEET_ID"):

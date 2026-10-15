@@ -4,7 +4,7 @@ import logging
 import os
 import sys
 
-from common.env import env_int
+from backend.core.env import env_int
 
 # Log lines go out immediately (Render logs pipe stdout, which is otherwise block-buffered)
 sys.stdout.reconfigure(line_buffering=True)

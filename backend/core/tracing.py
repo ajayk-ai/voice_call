@@ -16,7 +16,7 @@ import re
 import time
 from datetime import datetime, timezone
 
-from common import env  # noqa: F401 - loads .env before LANGSMITH_* is read
+from backend.core import env  # noqa: F401 - loads .env before LANGSMITH_* is read
 
 log = logging.getLogger("monitoring.tracing")
 

@@ -4,10 +4,11 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>PO Follow-up Admin</title>
+<link rel="stylesheet" href="/assets/ui.css">
 <style>
   :root {
     --bg: #f4f6f8; --card: #fff; --fg: #1d242b; --muted: #5d6874; --line: #dde2e7; --soft: #eef1f4;
-    --accent: #1f6fb2; --accent-soft: #e3eef8; --accent-fg: #fff; --ok: #2f7d4f; --ok-soft: #e4f3ea;
+    --accent: #2563eb; --accent-soft: #e3eef8; --accent-fg: #fff; --ok: #2f7d4f; --ok-soft: #e4f3ea;
     --warn: #a15c07; --warn-soft: #fbf0e0; --bad: #c2412d; --bad-soft: #fbe7e3;
     --prod: #c2412d; --test: #2f7d4f;
   }
@@ -18,16 +19,13 @@
       --prod: #e0664f; --test: #6cc893; color-scheme: dark; }
   }
   * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.5 "Segoe UI", system-ui, sans-serif; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.5 var(--font-ui, system-ui); }
   [hidden] { display: none !important; }
   header { position: sticky; top: 0; z-index: 5; background: var(--card); border-bottom: 1px solid var(--line);
     border-top: 4px solid var(--envc, var(--line)); }
   .wrap { max-width: 1180px; margin: 0 auto; padding: 0 16px; }
-  .topnav { display: flex; flex-wrap: wrap; gap: 4px 16px; align-items: center; padding-top: 8px; font-size: .88rem; }
-  .topnav a { color: var(--muted); text-decoration: none; font-weight: 600; border-bottom: 2px solid transparent; }
-  .topnav a:hover, .topnav a[aria-current="page"] { color: var(--fg); border-bottom-color: var(--accent); }
-  .topnav .brand { color: var(--fg); margin-right: 8px; }
-  .titlebar { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center; padding: 8px 0; }
+  .gnav-in { max-width: 1180px; padding: 0 16px; }
+  .titlebar { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center; padding: 14px 0 8px; }
   h1 { font-size: 1.2rem; margin: 0; margin-right: auto; }
   .views { display: flex; gap: 2px; overflow-x: auto; }
   .views button { background: none; color: var(--muted); border-radius: 0; padding: 10px 14px; border-bottom: 3px solid transparent; white-space: nowrap; }
@@ -128,15 +126,18 @@
 </style>
 </head>
 <body>
-<header>
-  <div class="wrap">
-    <nav class="topnav" aria-label="Pages">
-      <a class="brand" href="/">PO Agent</a>
+<nav class="gnav" aria-label="Pages"><div class="gnav-in">
+    <a class="brand" href="/"><span class="mark" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 7l9-4 9 4-9 4-9-4z"/><path d="M3 7v10l9 4 9-4V7M12 11v10"/></svg></span><span class="word"><b>PO Agent</b><small>Supply chain follow-up</small></span></a>
+    <div class="links">
+      <a href="/dashboard">Dashboard</a>
       <a href="/?tab=phone">Normal call</a>
       <a href="/?tab=browser">Voice agent</a>
       <a href="/admin" aria-current="page">Follow-up admin</a>
-      <a href="/docs">API docs</a>
-    </nav>
+      <a href="/docs" class="end">API docs</a>
+    </div>
+</div></nav>
+<header>
+  <div class="wrap">
     <div class="titlebar">
       <h1>PO Follow-up Admin</h1>
       <span id="busy" class="pill running" hidden>Run in progress…</span>

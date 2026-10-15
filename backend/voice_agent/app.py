@@ -5,14 +5,16 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from . import config  # noqa: F401 - loads .env and sets up logging before anything else
-from monitoring import tracing
-from po_followup import admin
+from backend.voice_agent import config  # noqa: F401 - loads .env and sets up logging before anything else
+from backend.core import frontend, tracing
+from backend.po_followup.api import admin
 
-from .routes import routers
+from backend.voice_agent.routes import routers
 
 log = logging.getLogger("voice_agent")
 
@@ -34,6 +36,10 @@ def create_app() -> FastAPI:
     )
     for router in routers:
         app.include_router(router)
+    # Shared frontend files (frontend/assets): /assets/ui.css is linked by every page
+    app.mount("/assets", StaticFiles(directory=frontend.ASSETS), name="assets")
+    # The dashboard sends every overdue PO line at once (~2 MB of JSON); compressed it is a fraction of that
+    app.add_middleware(GZipMiddleware, minimum_size=1000)
 
     # Every error is {"error": "<readable message>"}, which is what the web pages show
     @app.exception_handler(StarletteHTTPException)

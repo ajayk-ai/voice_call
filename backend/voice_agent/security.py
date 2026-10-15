@@ -6,7 +6,7 @@ from collections import defaultdict, deque
 
 from fastapi import Request
 
-from .config import APP_PASSWORD, CALL_RATE_LIMIT, CALL_RATE_WINDOW
+from backend.voice_agent.config import APP_PASSWORD, CALL_RATE_LIMIT, CALL_RATE_WINDOW
 
 
 def check_password(given) -> bool:

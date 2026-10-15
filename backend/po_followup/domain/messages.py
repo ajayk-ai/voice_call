@@ -2,10 +2,10 @@
 
 from datetime import datetime, timedelta
 
-from .config import Settings
-from .escalation import recipients_from
+from backend.po_followup.config import Settings
+from backend.po_followup.domain.escalation import recipients_from
 
-# Header rows of the tabs this workflow writes (created by `python -m po_followup setup-tabs`)
+# Header rows of the tabs this workflow writes (created by `python -m backend.po_followup setup-tabs`)
 TAB_HEADERS = {
     "Line_Tracker": ["Line Key", "PO No", "PO Item", "Sch Line", "Vendor Code", "Vendor Name", "Material", "OD Days",
                      "Escalation Level", "Last Alert Type", "Last Alert Date", "First Alert Date", "Status",

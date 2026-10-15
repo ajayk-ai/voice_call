@@ -5,7 +5,7 @@ import logging
 import gspread
 from gspread.utils import ValueInputOption, rowcol_to_a1
 
-from common.google_auth import GoogleNotConfigured, delegated_credentials
+from backend.core.google_auth import GoogleNotConfigured, delegated_credentials
 
 log = logging.getLogger("po_followup.sheets")
 

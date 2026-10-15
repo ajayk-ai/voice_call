@@ -1,4 +1,4 @@
-"""Admin page and API for the PO follow-up workflow, served by the main web app (voice_agent/app.py).
+"""Admin page and API for the PO follow-up workflow, served by the main web app (backend/voice_agent/app.py).
 
     GET  /admin                         the admin page
     /admin/api/...                      JSON API (needs the admin code in the X-Admin-Code header)
@@ -13,20 +13,21 @@ import os
 import secrets
 import threading
 from datetime import datetime
-from pathlib import Path
-from typing import Callable, Literal
+from typing import Callable
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Path as PathParam, Query, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import HTMLResponse
-from pydantic import BaseModel, ConfigDict, Field
-
-from .config import env_bool
+from backend.core import frontend
+from backend.po_followup.config import env_bool
+from backend.po_followup.models.admin import Env, RunRequest, SettingsUpdate, Table, VendorCall, VendorTest
 
 try:
     import psycopg
 
-    from . import service, store, trace
+    from backend.po_followup.db import store
+    from backend.po_followup.services import followup as service
+    from backend.po_followup.services import trace
 except ImportError as e:  # psycopg not installed (e.g. on Render): admin unavailable, the rest of the app runs
     psycopg = service = store = trace = None
     IMPORT_ERROR = f"PostgreSQL driver not installed ({e.name}); install psycopg[binary]"
@@ -35,53 +36,7 @@ else:
 
 log = logging.getLogger("po_followup.admin")
 
-PAGE = Path(__file__).with_name("static").joinpath("admin.html")
-
-Env = Literal["prod", "test"]
-Mode = Literal["preview", "dry", "live"]
-Table = Literal["Line_Tracker", "Alert_Log", "Call_Tasks", "Meeting_Tasks"]
-
-
-# ---------- request bodies ----------
-
-class SettingsUpdate(BaseModel):
-    """Any subset of the environment's settings; detailed checks are in service.validate_settings."""
-    model_config = ConfigDict(extra="forbid")
-
-    intervals_minutes: list[float] | None = None
-    auto_enabled: bool | None = None
-    auto_mode: Literal["dry", "live"] | None = None
-    schedule_type: Literal["daily", "interval"] | None = None
-    daily_time: str | None = None
-    every_minutes: float | None = None
-    pilot_mode: bool | None = None
-    pilot_mobile: str | None = None
-    pilot_vendor_codes: str | None = None
-    scm_hod_mobile: str | None = None
-    max_lines_per_message: int | None = None
-    refresh_from_sheet: bool | None = None
-    confirm: str | None = None  # "LIVE" to turn on automatic live sending in production
-
-
-class RunRequest(BaseModel):
-    mode: Mode
-    confirm: str | None = None  # "LIVE" for a live production run
-
-
-class VendorTest(BaseModel):
-    """Walk one test vendor through every scenario, `minutes` apart, with all messages going to `mobile`."""
-    vendor_code: str = Field(min_length=1, max_length=40)
-    mobile: str = Field(min_length=10, max_length=20)
-    minutes: float = Field(1, ge=1, le=1440)
-    mode: Literal["dry", "live"] = "live"
-    auto: bool = True  # run the next scenarios automatically (needs the scheduler)
-
-
-class VendorCall(BaseModel):
-    """Ring `mobile` now with the voice agent reading this vendor's overdue lines (test data)."""
-    vendor_code: str = Field(min_length=1, max_length=40)
-    mobile: str = Field(min_length=10, max_length=20)
-
+PAGE = frontend.page("admin.html")
 
 # ---------- access and readiness ----------
 

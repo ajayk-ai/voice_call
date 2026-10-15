@@ -3,12 +3,12 @@ from datetime import date, datetime
 
 import pytest
 
-from po_followup.config import Settings
-from po_followup.escalation import (
+from backend.po_followup.config import Settings
+from backend.po_followup.domain.escalation import (
     apply_phone_master, build_groups, detect_cleared, normalize_mobile, select_alerts,
 )
-from po_followup.replies import extract_po_number, reply_record
-from po_followup.run import ZONE, run_daily
+from backend.po_followup.api.replies import extract_po_number, reply_record
+from backend.po_followup.services.run import ZONE, run_daily
 
 RUN = date(2026, 10, 8)
 NOW = datetime(2026, 10, 8, 8, 30, tzinfo=ZONE)
@@ -242,7 +242,7 @@ def test_day2_agent_calls_scenario3_number_in_pilot():
     caller = FakeCaller()
     run_daily(replace(SETTINGS, pilot_mode=True), sheet, FakeSender(), now=NOW, sleep=lambda _: None, caller=caller)
     assert caller.called == ["917200081289"]
-    from voice_agent import call_context
+    from backend.voice_agent import call_context
 
     script = call_context.decode(caller.script)
     assert "SUPER SPRINGS" in script["greeting"]
@@ -321,8 +321,8 @@ def test_alert_log_is_written_per_vendor_so_a_crash_keeps_what_was_sent():
 def test_agent_call_refuses_a_stream_server_running_old_code(monkeypatch):
     import httpx
 
-    from po_followup.agent_call import AgentCallNotConfigured, check_stream_server
-    from voice_agent import call_context
+    from backend.po_followup.integrations.agent_call import AgentCallNotConfigured, check_stream_server
+    from backend.voice_agent import call_context
 
     monkeypatch.setattr(httpx, "get", lambda url, timeout: httpx.Response(200, headers={"X-Call-Script": call_context.VERSION}))
     check_stream_server("https://new")

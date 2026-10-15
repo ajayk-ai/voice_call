@@ -6,8 +6,8 @@ from functools import cache
 from google import genai
 from google.genai import types
 
-from .config import GEMINI_API_KEY, GEMINI_LANGUAGE, GEMINI_SILENCE_MS, GEMINI_VOICE
-from .prompts import PO_FOLLOWUP_PROMPT
+from backend.voice_agent.config import GEMINI_API_KEY, GEMINI_LANGUAGE, GEMINI_SILENCE_MS, GEMINI_VOICE
+from backend.voice_agent.prompts import PO_FOLLOWUP_PROMPT
 
 log = logging.getLogger("voice_agent.gemini")
 

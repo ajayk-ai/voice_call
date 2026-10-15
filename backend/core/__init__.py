@@ -1,1 +1,2 @@
-"""Setup and helpers shared by every package (voice_agent, po_followup, po_sync, monitoring)."""
+"""Shared by every backend package: .env + OS certificate store (env), Google credentials
+(google_auth), LangSmith tracing (tracing) and where the frontend files are (frontend)."""

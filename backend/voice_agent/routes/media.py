@@ -7,15 +7,15 @@ import logging
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
-from monitoring.tracing import SessionTrace, mask_phones
+from backend.core.tracing import SessionTrace, mask_phones
 
-from .. import call_context
-from ..audio import Downsampler
-from ..bridge import new_session_id, run_bridge, safe_close
-from ..config import GEMINI_MODEL, GEMINI_VOICE
-from ..gemini import LIVE_CONFIG, gemini_client, live_config, pcm16k, receive_turns
-from ..prompts import GREETING_TRIGGER
-from ..turns import TurnRecorder
+from backend.voice_agent import call_context
+from backend.voice_agent.audio import Downsampler
+from backend.voice_agent.bridge import new_session_id, run_bridge, safe_close
+from backend.voice_agent.config import GEMINI_MODEL, GEMINI_VOICE
+from backend.voice_agent.gemini import LIVE_CONFIG, gemini_client, live_config, pcm16k, receive_turns
+from backend.voice_agent.prompts import GREETING_TRIGGER
+from backend.voice_agent.turns import TurnRecorder
 
 log = logging.getLogger("voice_agent.media")
 router = APIRouter()

@@ -6,8 +6,8 @@ public.sync_state records what was synced and when. Every cycle reads all tabs i
 and rewrites only the tabs whose content changed, each in its own transaction, so readers
 always see a complete, consistent copy of a tab.
 
-Run:  python -m po_sync          # keep syncing every PO_SYNC_INTERVAL_SECONDS
-      python -m po_sync --once   # one sync, then exit
+Run:  python -m backend.po_sync          # keep syncing every PO_SYNC_INTERVAL_SECONDS
+      python -m backend.po_sync --once   # one sync, then exit
 """
 
 import argparse
@@ -25,7 +25,7 @@ import gspread
 import psycopg
 from psycopg import sql
 
-from common import google_auth
+from backend.core import google_auth
 
 log = logging.getLogger("po_sync")
 

@@ -1,18 +1,17 @@
 """Web page, health check and what the server has configured."""
 
-from pathlib import Path
-
 from fastapi import APIRouter
 from fastapi.responses import HTMLResponse, PlainTextResponse
 
-from po_followup import admin
+from backend.core import frontend
+from backend.po_followup.api import admin
 
-from .. import call_context
-from ..config import APP_PASSWORD, FREJUN_PHONE_NUMBER, GEMINI_API_KEY, TELER_API_KEY
+from backend.voice_agent import call_context
+from backend.voice_agent.config import APP_PASSWORD, FREJUN_PHONE_NUMBER, GEMINI_API_KEY, TELER_API_KEY
 
 router = APIRouter(tags=["pages"])
 
-INDEX_PAGE = (Path(__file__).resolve().parent.parent / "static" / "index.html").read_text(encoding="utf-8")
+INDEX_PAGE = frontend.page("index.html").read_text(encoding="utf-8")
 
 
 @router.get("/", response_class=HTMLResponse, include_in_schema=False)
@@ -24,7 +23,7 @@ async def index():
 
 @router.get("/health", response_class=PlainTextResponse)
 async def health():
-    # Tells a caller this server understands signed vendor call scripts (see po_followup.agent_call)
+    # Tells a caller this server understands signed vendor call scripts (see backend/po_followup/integrations/agent_call.py)
     return PlainTextResponse("Voice agent server is running", headers={"X-Call-Script": call_context.VERSION})
 
 

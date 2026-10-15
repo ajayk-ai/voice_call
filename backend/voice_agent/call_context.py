@@ -13,8 +13,8 @@ import json
 import time
 import zlib
 
-from .config import TELER_API_KEY
-from .prompts import greeting, po_prompt
+from backend.voice_agent.config import TELER_API_KEY
+from backend.voice_agent.prompts import greeting, po_prompt
 
 # /health advertises this, so a caller can check the streaming server understands these tokens
 VERSION = "v1"

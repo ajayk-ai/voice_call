@@ -7,15 +7,15 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from monitoring.tracing import mask_phones, traceable
+from backend.core.tracing import mask_phones, traceable
 
-from .config import Settings
-from .escalation import (
+from backend.po_followup.config import Settings
+from backend.po_followup.domain.escalation import (
     apply_phone_master, build_groups, detect_cleared, is_valid_mobile, normalize_mobile, select_alerts, txt,
 )
-from .agent_call import call_script
-from .messages import call_task_row, log_row, meeting_task_row, message_for, recipients_for, tracker_rows
-from .whatsapp import mask_token
+from backend.po_followup.integrations.agent_call import call_script
+from backend.po_followup.domain.messages import call_task_row, log_row, meeting_task_row, message_for, recipients_for, tracker_rows
+from backend.po_followup.integrations.whatsapp import mask_token
 
 log = logging.getLogger("po_followup")
 

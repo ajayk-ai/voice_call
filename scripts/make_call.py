@@ -12,8 +12,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # run from anyw
 
 from teler import Client  # noqa: E402
 
-from common import env  # noqa: E402,F401 - loads .env
-from voice_agent import call_context  # noqa: E402
+from backend.core import env  # noqa: E402,F401 - loads .env
+from backend.voice_agent import call_context  # noqa: E402
 
 
 def main() -> None:

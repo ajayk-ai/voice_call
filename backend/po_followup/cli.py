@@ -1,11 +1,11 @@
 """Command line for the PO follow-up workflow.
 
-  python -m po_followup admin                        whole web app on http://127.0.0.1:8100 (admin at /admin) + scheduler
-  python -m po_followup run --env test --mode preview   one run now (env: prod/test, mode: preview/dry/live)
-  python -m po_followup scheduler                    automatic scheduler only (no web page)
-  python -m po_followup copy-prod-to-test            refresh test data from production
-  python -m po_followup setup-tabs                   create missing tracking tabs in the Google Sheet
-  python -m po_followup build-phone-master           create the Phone_Master tab from Master's vendors
+  python -m backend.po_followup admin               whole web app on http://127.0.0.1:8100 (admin at /admin) + scheduler
+  python -m backend.po_followup run --env test --mode preview   one run now (env: prod/test, mode: preview/dry/live)
+  python -m backend.po_followup scheduler           automatic scheduler only (no web page)
+  python -m backend.po_followup copy-prod-to-test   refresh test data from production
+  python -m backend.po_followup setup-tabs          create missing tracking tabs in the Google Sheet
+  python -m backend.po_followup build-phone-master  create the Phone_Master tab from Master's vendors
 """
 
 import argparse
@@ -14,17 +14,17 @@ import signal
 import sys
 import threading
 
-from monitoring.tracing import flush
+from backend.core.tracing import flush
 
-from .config import Settings
-from .escalation import map_row, txt
-from .messages import TAB_HEADERS
+from backend.po_followup.config import Settings
+from backend.po_followup.domain.escalation import map_row, txt
+from backend.po_followup.domain.messages import TAB_HEADERS
 
 log = logging.getLogger("po_followup")
 
 
 def _sheet(settings: Settings):
-    from .sheets import PoSheet
+    from backend.po_followup.integrations.sheets import PoSheet
 
     return PoSheet(settings.sheet_id)
 
@@ -37,12 +37,13 @@ def cmd_admin(port: int) -> int:
 
     os.environ["FOLLOWUP_SCHEDULER"] = "true"
     log.info("Admin page: http://127.0.0.1:%d/admin", port)
-    uvicorn.run("voice_agent.app:app", host="127.0.0.1", port=port, log_level="info")
+    uvicorn.run("backend.voice_agent.app:app", host="127.0.0.1", port=port, log_level="info")
     return 0
 
 
 def cmd_run(env: str, mode: str) -> int:
-    from . import service, store
+    from backend.po_followup.services import followup as service
+    from backend.po_followup.db import store
 
     store.init_environment(env)
     if env == "prod" and mode == "live" and input("LIVE production run. Type LIVE to continue: ") != "LIVE":
@@ -60,7 +61,8 @@ def cmd_run(env: str, mode: str) -> int:
 
 
 def cmd_scheduler() -> int:
-    from . import service, store
+    from backend.po_followup.services import followup as service
+    from backend.po_followup.db import store
 
     for env in store.ENVIRONMENTS:
         store.init_environment(env)
@@ -77,7 +79,7 @@ def cmd_scheduler() -> int:
 
 
 def cmd_copy_prod_to_test() -> int:
-    from . import store
+    from backend.po_followup.db import store
 
     store.init_environment("test")
     print("Copied:", store.copy_prod_to_test())
@@ -117,7 +119,7 @@ def cmd_build_phone_master(settings: Settings) -> int:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(prog="python -m po_followup", description="SCM PO follow-up workflow")
+    parser = argparse.ArgumentParser(prog="python -m backend.po_followup", description="SCM PO follow-up workflow")
     sub = parser.add_subparsers(dest="command", required=True)
     admin_p = sub.add_parser("admin", help="admin page + automatic scheduler")
     admin_p.add_argument("--port", type=int, default=8100)

@@ -3,7 +3,7 @@
 import time
 from datetime import datetime, timezone
 
-from monitoring.tracing import SessionTrace, usage_from_gemini
+from backend.core.tracing import SessionTrace, usage_from_gemini
 
 
 class TurnRecorder:

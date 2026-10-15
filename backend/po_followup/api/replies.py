@@ -58,7 +58,7 @@ _sheet = None
 
 def _store(record: dict) -> None:
     global _sheet
-    from .sheets import PoSheet  # imported lazily: only needed once a reply arrives
+    from backend.po_followup.integrations.sheets import PoSheet  # imported lazily: only needed once a reply arrives
 
     if _sheet is None:
         _sheet = PoSheet(os.getenv("PO_SHEET_ID", ""))

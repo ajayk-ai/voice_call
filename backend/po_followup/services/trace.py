@@ -7,10 +7,10 @@ import threading
 import time
 from datetime import datetime, timedelta
 
-from .escalation import (
+from backend.po_followup.domain.escalation import (
     CONTACT_FIELDS, MAX_LEVEL, apply_phone_master, interval_elapsed, last_alert_time, line_key, map_row, num, txt,
 )
-from .run import ZONE
+from backend.po_followup.services.run import ZONE
 
 # One entry per escalation level; "number" is the Phone_Master column whose number is used at that step
 STEPS = [
@@ -157,7 +157,7 @@ _cache_lock = threading.Lock()
 
 
 def source_records(env: str, title: str) -> list[dict]:
-    from . import store
+    from backend.po_followup.db import store
 
     with _cache_lock:
         hit = _cache.get((env, title))
@@ -175,7 +175,8 @@ def clear_cache() -> None:
 
 
 def _settings_and_data(env: str):
-    from . import service, store
+    from backend.po_followup.services import followup as service
+    from backend.po_followup.db import store
 
     return service.get_settings(env), source_records(env, "Master"), store.PgStore(env).read_records("Line_Tracker")
 
@@ -210,7 +211,8 @@ def vendor_list(env: str) -> list[dict]:
 
 
 def vendor_trace(env: str, code: str) -> dict | None:
-    from . import service, store
+    from backend.po_followup.services import followup as service
+    from backend.po_followup.db import store
 
     s, master, tracker = _settings_and_data(env)
     vendor = index_vendors(master).get(code)
