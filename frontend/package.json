@@ -1,0 +1,10 @@
+{
+  "name": "frontend",
+  "private": true,
+  "description": "Plain HTML/CSS served by the FastAPI app; these scripts just start the backend.",
+  "scripts": {
+    "dev": "cd .. && .venv\\Scripts\\uvicorn main:app --port 5050 --reload",
+    "start": "cd .. && .venv\\Scripts\\uvicorn main:app --port 5050",
+    "build": "echo No build step: frontend is static HTML/CSS served by FastAPI."
+  }
+}

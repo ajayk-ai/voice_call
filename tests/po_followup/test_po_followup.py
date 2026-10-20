@@ -1,5 +1,5 @@
 from dataclasses import replace
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 import pytest
 
@@ -8,6 +8,7 @@ from backend.po_followup.domain.escalation import (
     apply_phone_master, build_groups, detect_cleared, normalize_mobile, select_alerts,
 )
 from backend.po_followup.api.replies import extract_po_number, reply_record
+from backend.po_followup.domain.overdue import overdue_now
 from backend.po_followup.services.run import ZONE, run_daily
 
 RUN = date(2026, 10, 8)
@@ -32,8 +33,14 @@ SETTINGS = Settings(
     sheet_id="x", test_mode=False, update_tracker_in_test_mode=False, pilot_mode=False,
     pilot_vendor_codes=frozenset({"400186"}), pilot_mobile="7200081289", ultramsg_base_url="u", ultramsg_token="t",
     scm_hod_name="SCM Head", scm_hod_mobile="9999999999", scm_head_email="", max_lines_per_message=15,
-    send_interval_seconds=0, run_at="08:30",
+    send_interval_seconds=0, run_at="08:30", vendor_scope="all",
 )
+
+
+def test_runs_follow_up_only_the_selected_vendors_unless_scope_is_all():
+    assert SETTINGS.vendor_filter is None
+    assert replace(SETTINGS, vendor_scope="selected").vendor_filter == {"400186"}
+    assert replace(SETTINGS, pilot_mode=True).vendor_filter == {"400186"}  # pilot always means selected only
 
 
 # ---------- rules ----------
@@ -43,30 +50,24 @@ def test_only_overdue_lines_are_pending():
     assert len(groups) == 1 and groups[0]["overdueLines"] == 1 and groups[0]["poNumber"] == "1"
 
 
-def test_tracker_moves_line_up_one_level_and_skips_today():
-    rows = [master_row("1"), master_row("2"), master_row("3"), master_row("4")]
+def test_streak_confirms_the_next_level_one_step_at_a_time():
+    rows = [master_row(str(i)) for i in range(1, 6)]
     tracker = [
-        tracker_row("1/10/1", 0),                        # -> level 1
-        tracker_row("2/10/1", 1, last_date="2026-10-08"),  # already alerted today -> skipped
-        tracker_row("3/10/1", 3),                        # meeting reached -> skipped
-        tracker_row("4/10/1", 2, status="CLEARED"),      # cleared earlier -> starts again at 0
+        tracker_row("1/10/1", 0),                    # streak 2 confirms Scenario 2 -> level 1
+        tracker_row("2/10/1", 1),                    # Scenario 2 already sent; streak 2 confirms nothing more yet
+        tracker_row("3/10/1", 3),                    # meeting reached -> nothing
+        tracker_row("4/10/1", 2, status="CLEARED"),  # cleared earlier -> starts again at Scenario 1
+        tracker_row("5/10/1", 0),                    # streak 4 confirms the meeting, but levels are never skipped
     ]
-    levels = {g["nextLevel"]: [l["poNumber"] for l in g["lines"]] for g in build_groups(rows, tracker, NOW)}
-    assert levels == {1: ["1"], 0: ["4"]}
+    line_streaks = {"1/10/1": 2, "2/10/1": 2, "3/10/1": 9, "4/10/1": 5, "5/10/1": 4}
+    levels = {g["nextLevel"]: [l["poNumber"] for l in g["lines"]] for g in build_groups(rows, tracker, NOW, streaks=line_streaks)}
+    assert levels == {1: ["1", "5"], 0: ["4"]}
 
 
-def test_custom_intervals_per_level():
-    tracker = [
-        {**tracker_row("1/10/1", 0), "Last Alert At": "2026-10-08 08:20:00"},  # 10 min ago, level 0
-        {**tracker_row("2/10/1", 1), "Last Alert At": "2026-10-08 08:20:00"},  # 10 min ago, level 1
-    ]
-    rows = [master_row("1"), master_row("2")]
-    # 5 min after level 0, 60 min after level 1
-    levels = {g["nextLevel"] for g in build_groups(rows, tracker, NOW, intervals_minutes=(5, 60, 60))}
-    assert levels == {1}
-    # daily run a few seconds earlier than yesterday's alert still escalates
-    t = [{**tracker_row("1/10/1", 0), "Last Alert At": "2026-10-07 08:30:05"}]
-    assert build_groups([master_row("1")], t, NOW)[0]["nextLevel"] == 1
+def test_unconfirmed_line_waits_for_the_next_check():
+    tracker = [tracker_row("1/10/1", 0)]
+    assert build_groups([master_row("1")], tracker, NOW, streaks={"1/10/1": 1}) == []
+    assert build_groups([master_row("1")], tracker, NOW) == []  # no history: overdue in this check only
 
 
 def test_group_summary_and_due_date():
@@ -123,10 +124,23 @@ def test_pilot_mode_redirects_every_message():
 # ---------- full run with fakes ----------
 
 class FakeSheet:
-    def __init__(self, tabs):
+    def __init__(self, tabs, overdue_days=0):
         self.tabs = tabs
         self.appended: dict[str, list] = {}
         self.upserted: dict[str, list] = {}
+        # Earlier daily checks: Master's overdue lines were overdue on each of the `overdue_days` days before NOW
+        midnight = NOW.replace(hour=0, minute=0)
+        self.checks = [(midnight - timedelta(days=d), None) for d in range(1, overdue_days + 1)]
+        self.recorded = None
+
+    def record_check(self, period, lines, master_rows):
+        self.checks = [c for c in self.checks if c[0] != period] + [(period, set(lines))]
+        self.recorded = (period, set(lines), master_rows)
+
+    def recent_checks(self, upto, limit=7):
+        everything = set(overdue_now(self.tabs.get("Master", [])))
+        out = sorted((c for c in self.checks if c[0] <= upto), key=lambda c: c[0], reverse=True)[:limit]
+        return [(p, everything if keys is None else keys) for p, keys in out]
 
     def read_records(self, title):
         if isinstance(self.tabs.get(title), Exception):
@@ -197,8 +211,35 @@ def test_invalid_number_is_logged():
     assert sheet.appended["Alert_Log"][0]["Status"] == "INVALID_MOBILE"
 
 
+def test_run_records_the_check_and_escalates_after_consecutive_overdue_days():
+    sheet = FakeSheet({"Master": [master_row("1"), master_row("2", od="0")]})
+    report = run(sheet, FakeSender())
+    assert sheet.recorded == (datetime(2026, 10, 8, tzinfo=ZONE), {"1/10/1"}, 2)
+    assert report.check["by_scenario"] == [1, 0, 0, 0] and report.alerts[0]["level"] == 0
+    sheet.tabs["Line_Tracker"] = list(sheet.upserted["Line_Tracker"])
+    # same day again: the streak is still 1, so nothing new goes out
+    assert run(sheet, FakeSender()).alerts == []
+    # next day, still overdue: Scenario 2 to vendor management
+    sender = FakeSender()
+    report = run_daily(SETTINGS, sheet, sender, now=NOW + timedelta(days=1), sleep=lambda _: None)
+    assert report.check["by_scenario"] == [0, 1, 0, 0] and report.check["earlier_checks"] == 1
+    assert [m for m, _ in sender.sent] == ["919876543212"]
+
+
+def test_a_day_not_overdue_restarts_the_streak():
+    sheet = FakeSheet({"Master": [master_row("1")], "Line_Tracker": [tracker_row("1/10/1", 0)]})
+    sheet.checks = [(NOW.replace(hour=0, minute=0) - timedelta(days=1), set())]  # not overdue yesterday
+    assert run(sheet, FakeSender()).alerts == []  # streak 1: Scenario 2 not confirmed
+
+
+def test_preview_does_not_record_the_check():
+    sheet = FakeSheet({"Master": [master_row("1")]})
+    run_daily(SETTINGS, sheet, None, preview=True, now=NOW)
+    assert sheet.recorded is None
+
+
 def test_day2_creates_call_task_and_messages_buyer():
-    sheet = FakeSheet({"Master": [master_row("1")], "Line_Tracker": [tracker_row("1/10/1", 1)]})
+    sheet = FakeSheet({"Master": [master_row("1")], "Line_Tracker": [tracker_row("1/10/1", 1)]}, overdue_days=2)
     sender = FakeSender()
     run(sheet, sender)
     assert sheet.appended["Call_Tasks"][0]["Task ID"] == "400186-CALL-2026-10-08"
@@ -206,7 +247,7 @@ def test_day2_creates_call_task_and_messages_buyer():
 
 
 def test_day3_creates_meeting_task_and_notifies_buyer_and_hod():
-    sheet = FakeSheet({"Master": [master_row("1")], "Line_Tracker": [tracker_row("1/10/1", 2)]})
+    sheet = FakeSheet({"Master": [master_row("1")], "Line_Tracker": [tracker_row("1/10/1", 2)]}, overdue_days=3)
     sender = FakeSender()
     run(sheet, sender)
     meeting = sheet.appended["Meeting_Tasks"][0]
@@ -238,7 +279,7 @@ class FakeMeet:
 
 
 def test_day2_agent_calls_scenario3_number_in_pilot():
-    sheet = FakeSheet({"Master": [master_row("1")], "Line_Tracker": [tracker_row("1/10/1", 1)]})
+    sheet = FakeSheet({"Master": [master_row("1")], "Line_Tracker": [tracker_row("1/10/1", 1)]}, overdue_days=2)
     caller = FakeCaller()
     run_daily(replace(SETTINGS, pilot_mode=True), sheet, FakeSender(), now=NOW, sleep=lambda _: None, caller=caller)
     assert caller.called == ["917200081289"]
@@ -253,7 +294,7 @@ def test_day2_agent_calls_scenario3_number_in_pilot():
 
 
 def test_day2_failed_agent_call_is_logged_and_whatsapp_still_goes():
-    sheet = FakeSheet({"Master": [master_row("1")], "Line_Tracker": [tracker_row("1/10/1", 1)]})
+    sheet = FakeSheet({"Master": [master_row("1")], "Line_Tracker": [tracker_row("1/10/1", 1)]}, overdue_days=2)
     sender = FakeSender()
     run_daily(SETTINGS, sheet, sender, now=NOW, sleep=lambda _: None, caller=FakeCaller(fail=True))
     assert {r["Status"] for r in sheet.appended["Alert_Log"]} == {"CALL_FAILED", "SENT"}
@@ -261,14 +302,14 @@ def test_day2_failed_agent_call_is_logged_and_whatsapp_still_goes():
 
 
 def test_dry_run_places_no_agent_call_or_meet():
-    sheet = FakeSheet({"Master": [master_row("1")], "Line_Tracker": [tracker_row("1/10/1", 1)]})
+    sheet = FakeSheet({"Master": [master_row("1")], "Line_Tracker": [tracker_row("1/10/1", 1)]}, overdue_days=2)
     caller, meet = FakeCaller(), FakeMeet()
     run_daily(replace(SETTINGS, test_mode=True), sheet, None, now=NOW, caller=caller, meet=meet)
     assert caller.called == [] and meet.invites == []
 
 
 def test_day3_meet_invite_goes_to_pilot_email_and_link_is_shared():
-    sheet = FakeSheet({"Master": [master_row("1")], "Line_Tracker": [tracker_row("1/10/1", 2)]})
+    sheet = FakeSheet({"Master": [master_row("1")], "Line_Tracker": [tracker_row("1/10/1", 2)]}, overdue_days=3)
     sender, meet = FakeSender(), FakeMeet()
     run_daily(replace(SETTINGS, pilot_mode=True, pilot_email="ajay.k@bullmachine.com"), sheet, sender, now=NOW,
               sleep=lambda _: None, meet=meet)

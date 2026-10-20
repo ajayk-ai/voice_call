@@ -26,8 +26,8 @@ def default_settings(env: str) -> dict:
     base = Settings.from_env()
     test = env == "test"
     return {
-        # minutes to wait after level 0, 1, 2 before the next level
-        "intervals_minutes": [5, 5, 5] if test else list(base.intervals_minutes),
+        # overdue lines are checked once per period; each check a line stays overdue confirms the next scenario
+        "check_period_minutes": 5 if test else base.check_period_minutes,
         "auto_enabled": False,
         "auto_mode": "dry",  # dry / live
         "schedule_type": "interval" if test else "daily",  # daily / interval
@@ -36,6 +36,7 @@ def default_settings(env: str) -> dict:
         "pilot_mode": base.pilot_mode or test,
         "pilot_mobile": base.pilot_mobile,
         "pilot_vendor_codes": ",".join(sorted(base.pilot_vendor_codes)),
+        "vendor_scope": base.vendor_scope,  # selected / all (chosen on the dashboard)
         "scm_hod_mobile": base.scm_hod_mobile,
         "max_lines_per_message": base.max_lines_per_message,
         "refresh_from_sheet": not test,  # production: pull the latest Google Sheet before each run
@@ -44,16 +45,18 @@ def default_settings(env: str) -> dict:
 
 
 def get_settings(env: str) -> dict:
-    return {**default_settings(env), **store.get_settings(env)}
+    defaults = default_settings(env)
+    # settings saved by older versions (e.g. intervals_minutes) are ignored
+    return {**defaults, **{k: v for k, v in store.get_settings(env).items() if k in defaults}}
 
 
 def validate_settings(values: dict) -> dict:
     """Checks a partial settings update from the admin page; raises ValueError with a readable message."""
     out = {}
     for k, v in values.items():
-        if k == "intervals_minutes":
-            if not (isinstance(v, list) and len(v) == 3 and all(isinstance(x, (int, float)) and 0 < x <= 43200 for x in v)):
-                raise ValueError("Intervals must be 3 numbers of minutes between 0 and 30 days")
+        if k == "check_period_minutes":
+            if not (isinstance(v, (int, float)) and not isinstance(v, bool) and 1 <= v <= 1440):
+                raise ValueError("Check period must be 1 minute to 1 day (1440 minutes)")
         elif k in ("auto_enabled", "pilot_mode", "refresh_from_sheet"):
             if not isinstance(v, bool):
                 raise ValueError(f"{k} must be true or false")
@@ -72,9 +75,15 @@ def validate_settings(values: dict) -> dict:
         elif k == "max_lines_per_message":
             if not (isinstance(v, int) and 1 <= v <= 50):
                 raise ValueError("Lines per message must be 1-50")
-        elif k in ("pilot_mobile", "scm_hod_mobile", "pilot_vendor_codes"):
+        elif k in ("pilot_mobile", "scm_hod_mobile"):
             if not isinstance(v, str) or not re.fullmatch(r"[0-9+ ,]*", v):
                 raise ValueError(f"{k} may contain only digits, +, spaces and commas")
+        elif k == "pilot_vendor_codes":
+            if not isinstance(v, str) or not re.fullmatch(r"[A-Za-z0-9_./ ,-]*", v):
+                raise ValueError("Vendor codes may contain only letters, digits, - _ . / and commas")
+        elif k == "vendor_scope":
+            if v not in ("selected", "all"):
+                raise ValueError("Vendor scope must be selected or all")
         else:
             raise ValueError(f"Unknown setting {k}")
         out[k] = v
@@ -92,9 +101,10 @@ def effective_settings(env: str, mode: str) -> Settings:
         pilot_mode=s["pilot_mode"],
         pilot_mobile=s["pilot_mobile"],
         pilot_vendor_codes=frozenset(c.strip() for c in s["pilot_vendor_codes"].split(",") if c.strip()),
+        vendor_scope=s["vendor_scope"],
         scm_hod_mobile=s["scm_hod_mobile"],
         max_lines_per_message=int(s["max_lines_per_message"]),
-        intervals_minutes=tuple(float(x) for x in s["intervals_minutes"]),
+        check_period_minutes=float(s["check_period_minutes"]),
     )
 
 
@@ -330,7 +340,7 @@ def start_vendor_test(vendor_code: str, mobile: str, minutes: float, mode: str, 
         raise ValueError("Live test needs ULTRAMSG_BASE_URL and ULTRAMSG_TOKEN in .env (or use a dry run)")
     values = validate_settings({
         "pilot_mode": True, "pilot_vendor_codes": vendor_code, "pilot_mobile": mobile,
-        "intervals_minutes": [minutes] * 3, "auto_enabled": False, "auto_mode": mode,
+        "check_period_minutes": minutes, "auto_enabled": False, "auto_mode": mode,
         "schedule_type": "interval", "every_minutes": max(1, minutes),
     })
     # Take the run lock first, so no automatic run can start between the reset and Scenario 1

@@ -5,11 +5,12 @@ and when the next step is due."""
 import re
 import threading
 import time
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from backend.po_followup.domain.escalation import (
-    CONTACT_FIELDS, MAX_LEVEL, apply_phone_master, interval_elapsed, last_alert_time, line_key, map_row, num, txt,
+    CONTACT_FIELDS, MAX_LEVEL, apply_phone_master, last_alert_time, line_key, map_row, num, txt,
 )
+from backend.po_followup.domain.overdue import next_period_start, period_start
 from backend.po_followup.services.run import ZONE
 
 # One entry per escalation level; "number" is the Phone_Master column whose number is used at that step
@@ -104,9 +105,11 @@ def position(tracker_rows: list[dict]) -> tuple[int | None, datetime | None]:
     return level, last
 
 
-def journey(level: int | None, last_alert: datetime | None, alert_rows: list[dict], intervals: list,
+def journey(level: int | None, last_alert: datetime | None, alert_rows: list[dict], period_minutes: float,
             now: datetime) -> list[dict]:
-    """The four steps with state done / next / later, their messages (newest first) and when the next is due."""
+    """The four steps with state done / next / later, their messages (newest first) and when the next is due.
+    The next scenario needs one more overdue check: it is due from the start of the check period after the
+    period of the last alert (provided the lines are still overdue then)."""
     steps = []
     for step in STEPS:
         lv = step["level"]
@@ -120,14 +123,15 @@ def journey(level: int | None, last_alert: datetime | None, alert_rows: list[dic
             state, due = "done", None
         elif lv == (0 if level is None else level + 1):
             state = "next"
-            due = None if level is None or last_alert is None else last_alert + timedelta(minutes=float(intervals[level]))
+            due = (None if level is None or last_alert is None
+                   else next_period_start(period_start(last_alert, period_minutes), period_minutes))
         else:
             state, due = "later", None
         steps.append({**step, "state": state, "done_at": done_at if state == "done" else None,
                       "due_at": due.isoformat() if due else None,
-                      "due_now": state == "next" and (level is None or interval_elapsed(last_alert, now, float(intervals[level]))),
-                      # wait after the previous step before this one can go out
-                      "wait_minutes": float(intervals[lv - 1]) if lv > 0 else None,
+                      "due_now": state == "next" and (due is None or now >= due),
+                      # one more overdue check (one check period) after the previous step
+                      "wait_minutes": float(period_minutes) if lv > 0 else None,
                       "messages": msgs[:20]})
     return steps
 
@@ -139,8 +143,8 @@ def next_step_note(steps: list[dict], pending_lines: int, in_pilot: bool, s: dic
         return "All steps done: the meeting stage is reached. Nothing more is sent for these lines."
     if pending_lines == 0:
         return "No pending lines (OD Days > 0) for this vendor, so nothing is sent. Open lines are marked CLEARED on the next run."
-    if s.get("pilot_mode") and not in_pilot:
-        return f"{nxt['name']} is next, but pilot mode is on and this vendor is not in the pilot vendor list, so runs skip it."
+    if vendor_filter(s) is not None and not in_pilot:
+        return f"{nxt['name']} is next, but this vendor is not selected for follow-up (dashboard), so runs skip it."
     how = ("goes out on the next automatic run" if s.get("auto_enabled") and next_auto else
            "goes out when you start a run (automatic runs are off)")
     if nxt["due_now"]:
@@ -182,7 +186,13 @@ def _settings_and_data(env: str):
 
 
 def _pilot_codes(s: dict) -> set[str]:
-    return {c.strip() for c in s["pilot_vendor_codes"].split(",") if c.strip()}
+    """The selected vendors (settings key kept from the pilot)."""
+    return {c.strip() for c in s.get("pilot_vendor_codes", "").split(",") if c.strip()}
+
+
+def vendor_filter(s: dict) -> set[str] | None:
+    """The only vendors runs follow up, or None for every vendor (same rule as config.Settings.vendor_filter)."""
+    return _pilot_codes(s) if s.get("pilot_mode") or s.get("vendor_scope", "all") != "all" else None
 
 
 def vendor_list(env: str) -> list[dict]:
@@ -225,7 +235,7 @@ def vendor_trace(env: str, code: str) -> dict | None:
                   "contacts": {}, "lines": {}}
     now = datetime.now(ZONE)
     level, last = position(tracker_rows)
-    steps = journey(level, last, alert_rows, s["intervals_minutes"], now)
+    steps = journey(level, last, alert_rows, s["check_period_minutes"], now)
     next_auto = service.next_auto_run(env, s, now)
     in_pilot = code in _pilot_codes(s)
 

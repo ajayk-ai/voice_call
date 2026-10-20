@@ -10,7 +10,7 @@ from backend.po_followup.services.run import ZONE
 from backend.voice_agent.app import app
 
 NOW = datetime(2026, 10, 9, 10, 0, tzinfo=ZONE)
-IV = [1, 1, 1]
+PERIOD = 1  # check period in minutes (test environment style)
 
 
 def tracker(level, at, status="OPEN", key="PO1/10/1"):
@@ -25,19 +25,20 @@ def log(level, at, status="SENT"):
 
 def test_not_started_scenario1_due_now():
     level, last = trace.position([])
-    steps = trace.journey(level, last, [], IV, NOW)
+    steps = trace.journey(level, last, [], PERIOD, NOW)
     assert [s["state"] for s in steps] == ["next", "later", "later", "later"]
     assert steps[0]["due_now"] and steps[0]["wait_minutes"] is None and steps[1]["wait_minutes"] == 1
 
 
-def test_scenario2_waits_for_interval():
-    sent = NOW - timedelta(seconds=20)
+def test_scenario2_waits_for_the_next_check():
+    sent = NOW + timedelta(seconds=20)
     level, last = trace.position([tracker(0, sent)])
-    steps = trace.journey(level, last, [log(0, sent)], IV, NOW)
+    steps = trace.journey(level, last, [log(0, sent)], PERIOD, sent)
     assert [s["state"] for s in steps] == ["done", "next", "later", "later"]
     assert steps[0]["done_at"] == sent.isoformat() and steps[0]["messages"][0]["status"] == "SENT"
-    assert not steps[1]["due_now"] and steps[1]["due_at"] == (sent + timedelta(minutes=1)).isoformat()
-    assert trace.journey(level, last, [], IV, NOW + timedelta(minutes=1))[1]["due_now"]
+    # due from the start of the next check period
+    assert not steps[1]["due_now"] and steps[1]["due_at"] == (NOW + timedelta(minutes=1)).isoformat()
+    assert trace.journey(level, last, [], PERIOD, NOW + timedelta(minutes=1))[1]["due_now"]
 
 
 def test_position_uses_highest_open_level_and_ignores_cleared():
@@ -47,15 +48,17 @@ def test_position_uses_highest_open_level_and_ignores_cleared():
 
 
 def test_all_done_and_failed_messages_stay_on_their_step():
-    steps = trace.journey(3, NOW, [log(1, NOW, "FAILED"), log(1, NOW, "SENT")], IV, NOW)
+    steps = trace.journey(3, NOW, [log(1, NOW, "FAILED"), log(1, NOW, "SENT")], PERIOD, NOW)
     assert all(s["state"] == "done" for s in steps)
     assert [m["status"] for m in steps[1]["messages"]] == ["SENT", "FAILED"]  # newest first
     assert "All steps done" in trace.next_step_note(steps, 4, True, {"pilot_mode": True}, None)
 
 
 def test_next_note_explains_pilot_skip_and_no_lines():
-    steps = trace.journey(None, None, [], IV, NOW)
-    assert "not in the pilot" in trace.next_step_note(steps, 3, False, {"pilot_mode": True}, None)
+    steps = trace.journey(None, None, [], PERIOD, NOW)
+    assert "not selected" in trace.next_step_note(steps, 3, False, {"pilot_mode": True}, None)
+    assert "not selected" in trace.next_step_note(steps, 3, False, {"vendor_scope": "selected"}, None)
+    assert "not selected" not in trace.next_step_note(steps, 3, False, {"vendor_scope": "all"}, None)
     assert "No pending lines" in trace.next_step_note(steps, 0, True, {"pilot_mode": True}, None)
     assert "due now" in trace.next_step_note(steps, 3, True, {"pilot_mode": True, "auto_enabled": True}, NOW)
 

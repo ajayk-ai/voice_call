@@ -60,7 +60,7 @@ def test_interval_schedule(last_run):
 
 
 @pytest.mark.parametrize("bad", [
-    {"intervals_minutes": [1, 2]}, {"intervals_minutes": [0, 5, 5]}, {"daily_time": "25:00"},
+    {"check_period_minutes": 0}, {"check_period_minutes": 2000}, {"check_period_minutes": True}, {"daily_time": "25:00"},
     {"auto_mode": "send"}, {"every_minutes": 0}, {"pilot_mobile": "abc"}, {"nope": 1},
 ])
 def test_invalid_settings_rejected(bad):
@@ -69,7 +69,7 @@ def test_invalid_settings_rejected(bad):
 
 
 def test_valid_settings_pass():
-    ok = {"intervals_minutes": [30, 60, 1440], "daily_time": "08:30", "auto_mode": "live", "pilot_mobile": "+91 72000"}
+    ok = {"check_period_minutes": 30, "daily_time": "08:30", "auto_mode": "live", "pilot_mobile": "+91 72000"}
     assert service.validate_settings(ok) == ok
 
 

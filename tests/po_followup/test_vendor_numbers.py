@@ -1,0 +1,151 @@
+"""Vendors on the dashboard: follow-up selection and Scenario 1 / 2 / 3 numbers (Phone_Master), single and bulk,
+without a database or Google Sheet."""
+
+import pytest
+from fastapi.testclient import TestClient
+
+from backend.po_followup.api import admin
+from backend.po_followup.db import store
+from backend.po_followup.services import followup as service
+from backend.po_followup.services import trace, vendor_numbers
+from backend.voice_agent.app import app
+
+client = TestClient(app, headers={"X-Access-Code": "biz"})
+HEADERS = ["Vendor Code", "Vendor Name", "Scenario 1 mobile No", "Scenario 2 No", "Scenario 3 No"]
+
+
+def master(code, name, od, planner="9800000001", mgmt="9800000002"):
+    return {"PO No": "PO" + code, "PO Item No": "10", "Vendor Code": code, "Vendor Name": name, "OD Days": str(od),
+            "vendor planner number": planner, "vendor management number": mgmt}
+
+
+@pytest.fixture
+def data(monkeypatch):
+    """Phone_Master with one vendor, Master with two, 400186 selected; records every write."""
+    tabs = {
+        "Master": [master("400186", "ACME", 5), master("400200", "Bolt Co", 0)],
+        "Phone_Master": [{"Vendor Code": "400186", "Vendor Name": "Acme (sheet name)",
+                          "Scenario 1 mobile No": "9811111111", "Scenario 2 No": "", "Scenario 3 No": "#N/A"}],
+    }
+    settings = {"prod": {"pilot_mode": False, "vendor_scope": "selected", "pilot_vendor_codes": "400186"}}
+    settings["test"] = dict(settings["prod"])
+    writes = {"db": [], "sheet": []}
+    monkeypatch.setattr(store, "source_headers", lambda env, title: HEADERS)
+    monkeypatch.setattr(store, "upsert_source_rows", lambda env, title, rows, key: writes["db"].append((env, rows, key)))
+    monkeypatch.setattr(store, "save_settings", lambda env, values: settings[env].update(values))
+    monkeypatch.setattr(service, "get_settings", lambda env: dict(settings[env]))
+    monkeypatch.setattr(trace, "source_records", lambda env, title: tabs[title])
+    monkeypatch.setattr(vendor_numbers, "_write_sheet", lambda rows, key: writes["sheet"].append((rows, key)))
+    monkeypatch.setattr(admin, "_ready", True)
+    monkeypatch.setenv("DASHBOARD_PASSWORD", "biz")
+    return {"writes": writes, "settings": settings}
+
+
+def test_find_headers_matches_the_sheet_spellings():
+    assert vendor_numbers.find_headers(HEADERS) == {
+        "code": "Vendor Code", "name": "Vendor Name", 1: "Scenario 1 mobile No", 2: "Scenario 2 No", 3: "Scenario 3 No"}
+
+
+@pytest.mark.parametrize("raw, ok", [
+    ("", ""), ("9876543210", "9876543210"), ("+91 98765 43210", "+91 98765 43210"),
+    ("9876543210, 09876543211 ; 919876543212", "9876543210, 09876543211, 919876543212"),
+])
+def test_valid_numbers_are_tidied(raw, ok):
+    assert vendor_numbers.check_numbers(raw, 1) == ok
+
+
+@pytest.mark.parametrize("raw", ["12345", "abc", "9876543210, 99", "9.19877E+11"])
+def test_invalid_numbers_are_refused(raw):
+    with pytest.raises(ValueError, match="Scenario 2"):
+        vendor_numbers.check_numbers(raw, 2)
+
+
+def test_list_merges_phone_master_master_and_selection(data):
+    out = vendor_numbers.list_numbers("prod")
+    assert out["ready"] and out["scope"] == "selected" and [v["code"] for v in out["vendors"]] == ["400186", "400200"]
+    acme, bolt = out["vendors"]
+    assert acme["selected"] and not bolt["selected"]
+    assert acme["name"] == "Acme (sheet name)" and acme["in_phone_master"] and acme["overdue_lines"] == 1
+    assert acme["numbers"] == ["9811111111", "", ""]  # '#N/A' counts as blank
+    assert acme["fallback"] == ["9800000001", "9800000002", "9800000002"]
+    assert not bolt["in_phone_master"] and bolt["numbers"] == ["", "", ""] and bolt["overdue_lines"] == 0
+
+
+def test_prod_save_writes_the_sheet_then_the_copy(data):
+    saved = vendor_numbers.save_one("prod", " 400186 ", None, ["9822222222", "", "9833333333"])
+    row = {"Vendor Code": "400186", "Scenario 1 mobile No": "9822222222", "Scenario 3 No": "9833333333"}
+    w = data["writes"]
+    assert w["sheet"] == [([row], "Vendor Code")]  # only changed cells; the name typed in the sheet is left alone
+    assert w["db"] == [("prod", [row], "Vendor Code")]
+    assert saved["code"] == "400186"
+
+
+def test_new_vendor_gets_its_name_from_master_and_test_never_touches_the_sheet(data):
+    vendor_numbers.save_one("test", "400200", None, ["9844444444", "", ""])
+    assert data["writes"]["sheet"] == []
+    assert data["writes"]["db"][0][1][0]["Vendor Name"] == "Bolt Co"
+
+
+def test_unknown_vendor_and_bad_number_change_nothing(data):
+    with pytest.raises(ValueError, match="not found"):
+        vendor_numbers.save_one("prod", "999999", None, ["9844444444", "", ""])
+    with pytest.raises(ValueError, match="Scenario 1"):
+        vendor_numbers.save_one("prod", "400186", None, ["123", "", ""])
+    assert data["writes"] == {"db": [], "sheet": []}
+
+
+def test_selection_and_scope(data):
+    out = vendor_numbers.set_selection("test", ["400186", "400200"], "selected", None)
+    assert out == {"scope": "selected", "selected": ["400186", "400200"]}
+    with pytest.raises(ValueError, match="Not found"):
+        vendor_numbers.set_selection("test", ["nope"], "selected", None)
+    with pytest.raises(ValueError, match="confirm = ALL"):  # every production vendor needs a typed confirmation
+        vendor_numbers.set_selection("prod", ["400186"], "all", None)
+    assert vendor_numbers.set_selection("prod", ["400186"], "all", "ALL")["scope"] == "all"
+
+
+def test_bulk_checks_everything_first_and_only_writes_changes(data):
+    rows = [
+        {"line": 2, "code": "400186", "name": None, "numbers": ["9811111111", None, None], "follow": False},  # same number
+        {"line": 3, "code": "400200", "name": None, "numbers": ["9855555555", "", ""], "follow": True},
+    ]
+    preview = vendor_numbers.bulk("prod", rows, apply=False)
+    assert preview == {"applied": False, "numbers_updated": 0, "numbers_added": 1,
+                       "selected_added": ["400200"], "selected_removed": ["400186"], "unchanged": 0}
+    assert data["writes"] == {"db": [], "sheet": []} and data["settings"]["prod"]["pilot_vendor_codes"] == "400186"
+
+    vendor_numbers.bulk("prod", rows, apply=True)
+    added = {"Vendor Code": "400200", "Scenario 1 mobile No": "9855555555", "Vendor Name": "Bolt Co"}
+    assert data["writes"]["sheet"] == [([added], "Vendor Code")]
+    assert data["settings"]["prod"]["pilot_vendor_codes"] == "400200"
+
+
+def test_bulk_lists_every_problem_and_saves_nothing(data):
+    rows = [{"line": 2, "code": "400186", "numbers": ["1", None, None]},
+            {"line": 3, "code": "400186", "numbers": [None, None, None], "follow": True},
+            {"line": 4, "code": "zzz"}]
+    with pytest.raises(ValueError) as e:
+        vendor_numbers.bulk("test", rows, apply=True)
+    assert "Nothing was saved" in str(e.value) and "Row 2" in str(e.value) and "Row 3" in str(e.value) and "Row 4" in str(e.value)
+    assert data["writes"] == {"db": [], "sheet": []}
+
+
+def test_api(data, monkeypatch):
+    assert client.get("/dashboard/api/test/vendor-numbers", headers={"X-Access-Code": "nope"}).status_code == 401
+    r = client.get("/dashboard/api/test/vendor-numbers")
+    assert r.status_code == 200 and len(r.json()["vendors"]) == 2
+    r = client.put("/dashboard/api/test/vendor-numbers/400186", json={"numbers": ["9855555555", "", ""]})
+    assert r.status_code == 200
+    r = client.put("/dashboard/api/test/vendor-numbers/400186", json={"numbers": ["1", "", ""]})
+    assert r.status_code == 400 and "Scenario 1" in r.json()["error"]
+    assert client.put("/dashboard/api/test/vendor-numbers/400186", json={"numbers": ["", ""]}).status_code == 422
+    r = client.put("/dashboard/api/prod/vendor-selection", json={"scope": "all", "codes": []})
+    assert r.status_code == 400 and "ALL" in r.json()["error"]
+    r = client.post("/dashboard/api/test/vendor-numbers/bulk", json={"rows": [{"code": "400200", "follow": True}]})
+    assert r.status_code == 200 and r.json()["selected_added"] == ["400200"] and not r.json()["applied"]
+
+    def sheet_down(rows, key):
+        raise vendor_numbers.SheetWriteFailed("Could not save to the Google Sheet: no access")
+    monkeypatch.setattr(vendor_numbers, "_write_sheet", sheet_down)
+    r = client.put("/dashboard/api/prod/vendor-numbers/400186", json={"numbers": ["9855555555", "", ""]})
+    assert r.status_code == 502 and "Google Sheet" in r.json()["error"]

@@ -184,8 +184,9 @@
 
     <section class="card">
       <h2>How the escalation works</h2>
-      <p class="small muted">Every PO line with <b>OD Days &gt; 0</b> is pending. It moves one step at a time; each step waits for the interval
-        set in Settings. A line that is no longer pending is marked CLEARED and stops. The numbers come from the Phone_Master tab
+      <p class="small muted">Every run checks Master once per check period (production: once a day). A PO line with <b>OD Days &gt; 0</b>
+        is overdue; the number of checks in a row it has been overdue confirms its scenario: 1 → Scenario 1, 2 → Scenario 2,
+        3 → Scenario 3, 4+ → meeting. Scenarios go out one at a time, never skipped. A line that is no longer overdue is marked CLEARED and starts again at Scenario 1 if it becomes overdue later. The numbers come from the Phone_Master tab
         (Scenario 1 / 2 / 3), falling back to Master.</p>
       <ol class="flow" id="howflow"></ol>
     </section>
@@ -308,19 +309,18 @@
       </section>
 
       <section class="card">
-        <h2>Wait between scenarios</h2>
-        <p class="small muted">How long a pending line waits at each step before it moves to the next. A run only moves lines whose wait is over.</p>
-        <div class="interval"><span>Scenario 1 → Scenario 2</span><input type="number" min="0" step="any" id="iv0" aria-label="Wait after Scenario 1"><select id="iu0" aria-label="Unit"></select></div>
-        <div class="interval"><span>Scenario 2 → Scenario 3</span><input type="number" min="0" step="any" id="iv1" aria-label="Wait after Scenario 2"><select id="iu1" aria-label="Unit"></select></div>
-        <div class="interval"><span>Scenario 3 → Day 3 meeting</span><input type="number" min="0" step="any" id="iv2" aria-label="Wait after Scenario 3"><select id="iu2" aria-label="Unit"></select></div>
+        <h2>Overdue check</h2>
+        <p class="small muted">Master is checked once per period; the latest run in a period counts. Each check in a row a line is still
+          overdue confirms the next scenario. Production: 1 day. Test: a few minutes, to watch a whole escalation quickly.</p>
+        <div class="interval"><span>Check period</span><input type="number" min="1" step="any" id="iv0" aria-label="Check period"><select id="iu0" aria-label="Unit"></select></div>
       </section>
 
       <section class="card">
         <h2>Sending</h2>
-        <label class="switch"><input type="checkbox" id="pilot_mode"> Pilot mode (only pilot vendors; every message goes to the pilot number)</label>
+        <label class="switch"><input type="checkbox" id="pilot_mode"> Pilot mode (only the selected vendors; every message goes to the pilot number)</label>
         <div class="grid2">
           <label>Pilot mobile<input id="pilot_mobile" inputmode="tel" placeholder="7200081289"></label>
-          <label>Pilot vendor codes<input id="pilot_vendor_codes" placeholder="400186,100791"></label>
+          <label>Selected vendor codes <small class="muted">(also chosen on the dashboard)</small><input id="pilot_vendor_codes" placeholder="400186,100791"></label>
           <label>SCM HOD mobile<input id="scm_hod_mobile" inputmode="tel"></label>
           <label>PO lines per message<input type="number" id="max_lines_per_message" min="1" max="50"></label>
         </div>
@@ -438,7 +438,7 @@ $("gateForm").onsubmit = (e) => {
 };
 
 // ---------- environment and sections ----------
-for (let i = 0; i < 3; i++) $("iu" + i).innerHTML = UNITS.map(([u]) => `<option>${u}</option>`).join("");
+for (let i = 0; i < 1; i++) $("iu" + i).innerHTML = UNITS.map(([u]) => `<option>${u}</option>`).join("");
 
 function setEnv(e, force = false) {
   if (!force && dirty && !confirm("Discard unsaved settings?")) return;
@@ -498,12 +498,12 @@ function render(st) {
   ];
   $("stats").innerHTML = cards.map(([k, v]) => `<div class="stat"><span class="small muted">${k}</span><b>${esc(v)}</b></div>`).join("");
 
-  const iv = st.settings.intervals_minutes;
+  const per = st.settings.check_period_minutes;
   $("howflow").innerHTML = STEPS.map((p, i) => {
     const n = open.filter((t) => String(t.level) === String(i)).reduce((a, t) => a + t.n, 0);
     return `<li class="step"><div class="head"><span class="dot">${i + 1}</span><div><div class="sname">${p.name}</div><div class="day">${p.day}</div></div></div>
       <div class="stitle">${p.title}</div><div class="small muted">${p.who}</div>
-      ${i ? `<div class="wait">Starts ${fmtWait(iv[i - 1])} after ${STEP_NAMES[i - 1]}</div>` : `<div class="wait">Starts on the first run</div>`}
+      <div class="wait">${i ? `Overdue ${i + 1}${i === 3 ? "+" : ""} checks in a row (${fmtWait(per)} apart)` : "Overdue in 1 check"}</div>
       <div class="when">${n} line(s) here now</div></li>`;
   }).join("");
 
@@ -515,7 +515,10 @@ function render(st) {
   const autoText = !set.auto_enabled ? "Automatic runs are <b>off</b>."
     : `Automatic <b>${set.auto_mode === "live" ? "live" : "dry"}</b> runs ${set.schedule_type === "daily" ? "every day at " + esc(set.daily_time) + " IST" : "every " + fmtWait(set.every_minutes)}.`
       + (st.scheduler ? ` Next: <b>${fmtTime(st.next_auto_run)}</b>.` : ` <span class="pill warn">scheduler not running</span>`);
-  $("autoSummary").innerHTML = autoText + `<br>Pilot mode: <b>${set.pilot_mode ? "on" : "off"}</b>` + (set.pilot_mode ? ` (vendors ${esc(set.pilot_vendor_codes || "none")}, all messages to ${esc(set.pilot_mobile || "no number set")})` : " (messages go to real numbers)");
+  const only = set.pilot_mode || set.vendor_scope !== "all";
+  $("autoSummary").innerHTML = autoText
+    + `<br>Vendors: <b>${only ? "selected only" : "all"}</b>` + (only ? ` (${esc(set.pilot_vendor_codes || "none selected")}) – chosen on the <a href="/dashboard${env === "test" ? "?env=test" : ""}#vendorsCard">dashboard</a>` : "")
+    + `<br>Pilot mode: <b>${set.pilot_mode ? "on" : "off"}</b>` + (set.pilot_mode ? ` (all messages to ${esc(set.pilot_mobile || "no number set")})` : " (messages go to real numbers)");
   $("nextrun").textContent = !set.auto_enabled ? "Automatic runs are off."
     : st.scheduler ? "Next automatic run: " + fmtTime(st.next_auto_run)
     : "Automatic runs are on, but the scheduler is not running in this server (start it with python -m po_followup admin, or set FOLLOWUP_SCHEDULER=true).";
@@ -628,8 +631,9 @@ function stepWhen(st, t) {
 function renderTrace(t, el) {
   const c = t.contacts, set = state.settings;
   const done = t.steps.every((s) => s.state === "done");
-  const pilotNote = set.pilot_mode
-    ? (t.in_pilot ? `Pilot mode: every message for this vendor actually goes to <b>${esc(set.pilot_mobile || "no pilot number set")}</b>.` : "Pilot mode is on and this vendor is not a pilot vendor: runs skip it.")
+  const only = set.pilot_mode || set.vendor_scope !== "all";
+  const pilotNote = only && !t.in_pilot ? "This vendor is not selected for follow-up (dashboard): runs skip it."
+    : set.pilot_mode ? `Pilot mode: every message for this vendor actually goes to <b>${esc(set.pilot_mobile || "no pilot number set")}</b>.`
     : "Pilot mode is off: messages go to the real numbers below.";
   const latest = [...t.steps].reverse().find((s) => s.messages.length);
   el.innerHTML = `
@@ -777,7 +781,7 @@ async function maybeFinishTest(t) {
 function fillSettings(s) {
   $("auto_enabled").checked = s.auto_enabled; $("auto_mode").value = s.auto_mode; $("schedule_type").value = s.schedule_type;
   $("daily_time").value = s.daily_time; $("every_minutes").value = s.every_minutes;
-  s.intervals_minutes.forEach((m, i) => { const [v, u] = minutesToUnit(m); $("iv" + i).value = v; $("iu" + i).value = u; });
+  { const [v, u] = minutesToUnit(s.check_period_minutes); $("iv0").value = v; $("iu0").value = u; }
   for (const k of ["pilot_mobile", "pilot_vendor_codes", "scm_hod_mobile", "max_lines_per_message"]) $(k).value = s[k] ?? "";
   $("pilot_mode").checked = s.pilot_mode; $("refresh_from_sheet").checked = s.refresh_from_sheet;
   showSchedule(); setDirty(false);
@@ -786,7 +790,7 @@ function readSettings() {
   return {
     auto_enabled: $("auto_enabled").checked, auto_mode: $("auto_mode").value, schedule_type: $("schedule_type").value,
     daily_time: $("daily_time").value, every_minutes: Number($("every_minutes").value),
-    intervals_minutes: [0, 1, 2].map((i) => Number($("iv" + i).value) * UNITS.find(([u]) => u === $("iu" + i).value)[1]),
+    check_period_minutes: Number($("iv0").value) * UNITS.find(([u]) => u === $("iu0").value)[1],
     pilot_mode: $("pilot_mode").checked, pilot_mobile: $("pilot_mobile").value.trim(),
     pilot_vendor_codes: $("pilot_vendor_codes").value.trim(), scm_hod_mobile: $("scm_hod_mobile").value.trim(),
     max_lines_per_message: Number($("max_lines_per_message").value), refresh_from_sheet: $("refresh_from_sheet").checked,
@@ -810,7 +814,9 @@ $("reset").onclick = () => fillSettings(state.settings);
 document.querySelectorAll("[data-run]").forEach((b) => b.onclick = guard(async () => {
   const mode = b.dataset.run, body = { mode };
   if (mode === "live") {
-    const pilot = state.settings.pilot_mode ? `Pilot mode is ON: messages go only to ${state.settings.pilot_mobile || "(no pilot number set!)"}.` : "Pilot mode is OFF: messages go to REAL vendor numbers.";
+    const s = state.settings;
+    const pilot = (s.pilot_mode || s.vendor_scope !== "all" ? `Only the selected vendors: ${s.pilot_vendor_codes || "(none selected!)"}.\n` : "ALL vendors.\n")
+      + (s.pilot_mode ? `Pilot mode is ON: messages go only to ${s.pilot_mobile || "(no pilot number set!)"}.` : "Pilot mode is OFF: messages go to REAL vendor numbers.");
     if (env === "prod") {
       if (prompt(`LIVE PRODUCTION RUN\n${pilot}\nProduction vendors will move to their next step.\n\nType LIVE to continue:`) !== "LIVE") return;
       body.confirm = "LIVE";

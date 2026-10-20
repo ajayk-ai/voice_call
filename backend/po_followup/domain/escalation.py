@@ -5,8 +5,9 @@ Pure functions only (no I/O), so the rules can be tested without Google Sheets o
 Rules:
 - A Master row is PENDING when OD Days > 0. Each row (PO / item / schedule line) has its own
   escalation state in Line_Tracker, keyed by "PO/item/schedule line".
-- A pending line moves one level up once the interval for its current level has passed
-  (default 1 day each, set per environment in the admin page):
+- A pending line moves one level up once its overdue streak confirms the next level (see domain/overdue.py:
+  overdue in 1 daily check -> Scenario 1, 2 checks in a row -> Scenario 2, 3 -> Scenario 3, 4+ -> meeting).
+  Levels are never skipped: Scenario 2 goes out only after Scenario 1 did.
   0 vendor alert -> 1 vendor management -> 2 buyer call task -> 3 management meeting.
 - Lines are grouped per vendor and level: one message per vendor per level per day.
 - A tracked line that is no longer pending in Master is CLEARED.
@@ -18,8 +19,6 @@ from datetime import date, datetime, timedelta
 
 ALERT_TYPES = ["VENDOR_ALERT_DAY0", "ESCALATION_DAY1", "MGMT_ESCALATION_DAY2", "MGMT_MEETING_DAY3"]
 MAX_LEVEL = 3
-# Minutes to wait after level 0, 1 and 2 before escalating to the next level
-DEFAULT_INTERVALS_MINUTES = (1440, 1440, 1440)
 
 ALIASES = {
     "material": ["Material", "Material Code", "Item Code", "Part No"],
@@ -133,15 +132,6 @@ def last_alert_time(t: dict, tz) -> datetime | None:
     return datetime(d.year, d.month, d.day, tzinfo=tz) if d else None
 
 
-def interval_elapsed(last: datetime | None, now: datetime, minutes: float) -> bool:
-    """True once `minutes` have passed since `last`. A little slack (10%, at most 5 min) so a daily run
-    at 08:30 still escalates a line alerted at 08:30:05 the day before."""
-    if last is None:
-        return True
-    need = timedelta(minutes=minutes)
-    return now - last >= need - min(timedelta(minutes=5), need * 0.1)
-
-
 def tracker_index(tracker_records: list[dict]) -> dict[str, dict]:
     return {txt(t.get("Line Key")): t for t in tracker_records if txt(t.get("Line Key"))}
 
@@ -149,7 +139,9 @@ def tracker_index(tracker_records: list[dict]) -> dict[str, dict]:
 # ---------- 03 Build Pending Lines & Escalation Groups ----------
 
 def build_groups(master_records: list[dict], tracker_records: list[dict], now: datetime, max_lines: int = 15,
-                 intervals_minutes: tuple = DEFAULT_INTERVALS_MINUTES) -> list[dict]:
+                 streaks: dict[str, int] | None = None) -> list[dict]:
+    """Vendor/level groups of lines due a message now. `streaks`: consecutive overdue checks per line key
+    (domain/overdue.py); a line missing from it (or streaks=None) counts as overdue in this check only."""
     run_date = now.date()
     run_iso = run_date.isoformat()
     tracker = tracker_index(tracker_records)
@@ -186,8 +178,9 @@ def build_groups(master_records: list[dict], tracker_records: list[dict], now: d
         next_level = current_level + 1
         if next_level > MAX_LEVEL:
             continue  # meeting stage already reached
-        if current_level >= 0 and not interval_elapsed(last_alert_time(t, now.tzinfo), now, intervals_minutes[current_level]):
-            continue  # waiting for this level's interval
+        streak = (streaks or {}).get(key, 1)
+        if next_level > min(streak, MAX_LEVEL + 1) - 1:
+            continue  # not confirmed yet: the line must stay overdue in more daily checks
 
         due = run_date - timedelta(days=od)  # Del.Date cells are unreliable (day/month swaps)
         g = groups.setdefault((vendor_code, next_level), {"vendorCode": vendor_code, "nextLevel": next_level, "lines": []})
@@ -198,7 +191,7 @@ def build_groups(master_records: list[dict], tracker_records: list[dict], now: d
             "due": due, "dueText": pretty(due), "poDate": parse_date(r.get("poDate")),
             "firstAlertDate": (txt(t.get("First Alert Date")) if active else "") or run_iso,
             "lastAlertType": txt(t.get("Last Alert Type")) if active else "",
-            "lastAlertDate": last_alert,
+            "lastAlertDate": last_alert, "streak": streak,
         })
 
     out = []
@@ -333,7 +326,7 @@ def alert_key(vendor_code: str, level: int, run_iso: str) -> str:
 
 def select_alerts(groups: list[dict], sent_keys_today: set[str], pilot_mode: bool, pilot_vendor_codes: set[str]) -> list[dict]:
     """Attach alertType/alertKey, then drop: levels out of range, keys already in today's Alert_Log,
-    repeat vendor+level groups, and (in pilot mode) vendors not in the pilot list."""
+    repeat vendor+level groups, and (when `pilot_mode`: only selected vendors) vendors not in the list."""
     seen = set()
     out = []
     for g in groups:

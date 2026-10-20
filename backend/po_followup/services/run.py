@@ -4,7 +4,7 @@ import json
 import logging
 import time
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from backend.core.tracing import mask_phones, traceable
@@ -15,6 +15,7 @@ from backend.po_followup.domain.escalation import (
 )
 from backend.po_followup.integrations.agent_call import call_script
 from backend.po_followup.domain.messages import call_task_row, log_row, meeting_task_row, message_for, recipients_for, tracker_rows
+from backend.po_followup.domain.overdue import LEVELS, confirmed_level, overdue_now, period_start, streaks
 from backend.po_followup.integrations.whatsapp import mask_token
 
 log = logging.getLogger("po_followup")
@@ -53,6 +54,7 @@ class RunReport:
     vendor_groups: int = 0
     sheet_writes: list[str] = field(default_factory=list)
     log_rows: list[dict] = field(default_factory=list)
+    check: dict = field(default_factory=dict)  # this run's overdue check: period, lines per confirmed scenario
 
 
 class DailyRun:
@@ -122,6 +124,8 @@ class DailyRun:
             ))
             return
 
+        line_streaks = self._check_overdue(master)
+
         cleared = detect_cleared(master, tracker, ctx.run_date, ctx.run_ts)
         self.report.cleared_lines = len(cleared)
         if cleared and s.tracker_writes_enabled:
@@ -130,10 +134,10 @@ class DailyRun:
             except Exception as e:
                 log.error("Could not mark %d line(s) CLEARED: %s", len(cleared), e)
 
-        groups = build_groups(master, tracker, ctx.now, s.max_lines_per_message, s.intervals_minutes)
+        groups = build_groups(master, tracker, ctx.now, s.max_lines_per_message, line_streaks)
         groups = apply_phone_master(groups, phone_master)
         sent_keys = {txt(r.get("Dedupe Key")) for r in today_log if txt(r.get("Dedupe Key"))}
-        groups = select_alerts(groups, sent_keys, s.pilot_mode, s.pilot_vendor_codes)
+        groups = select_alerts(groups, sent_keys, s.vendor_filter is not None, s.vendor_filter or frozenset())
         self.report.vendor_groups = len(groups)
         log.info("%d vendor/level group(s) to alert today (%s)", len(groups), "preview" if self.preview else
                  "dry run" if s.test_mode else "live")
@@ -143,6 +147,25 @@ class DailyRun:
             # Log each vendor as soon as it is handled: if the process dies mid-run, what was already
             # sent is still in Alert_Log (audit trail + today's dedupe keys), not lost with the run
             self._flush_logs()
+
+    def _check_overdue(self, master: list[dict]) -> dict[str, int]:
+        """Record this period's overdue check and return each overdue line's streak (checks in a row overdue).
+        Preview runs compute the streaks without recording the check."""
+        current = overdue_now(master)
+        period = period_start(self.ctx.now, self.s.check_period_minutes)
+        if not self.preview and hasattr(self.sheet, "record_check"):
+            self.sheet.record_check(period, current, len(master))
+        earlier = (self.sheet.recent_checks(period - timedelta(microseconds=1), LEVELS - 1)
+                   if hasattr(self.sheet, "recent_checks") else [])
+        line_streaks = streaks([(period, set(current))] + earlier, current)
+        by_scenario = [0] * LEVELS
+        for n in line_streaks.values():
+            by_scenario[confirmed_level(n)] += 1
+        self.report.check = {"period": period.isoformat(), "overdue_lines": len(current), "by_scenario": by_scenario,
+                             "earlier_checks": len(earlier)}
+        log.info("Overdue check %s: %d line(s); confirmed Scenario 1/2/3/meeting: %s", period.isoformat(),
+                 len(current), by_scenario)
+        return line_streaks
 
     @traceable(name="vendor_alert", run_type="chain", process_inputs=lambda i: _group_summary(i["g"]))
     def _handle_group(self, g: dict) -> None:
@@ -330,7 +353,7 @@ def _report_summary(report: RunReport) -> dict:
         statuses[a.get("status", "?")] = statuses.get(a.get("status", "?"), 0) + 1
     return {"run_date": report.run_date, "preview": report.preview, "vendor_groups": report.vendor_groups,
             "messages": len(report.alerts), "by_status": statuses, "cleared_lines": report.cleared_lines,
-            "alert_log_rows": len(report.log_rows)}
+            "alert_log_rows": len(report.log_rows), "check": report.check}
 
 
 @traceable(

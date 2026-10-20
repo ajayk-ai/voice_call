@@ -14,9 +14,9 @@ class Settings:
     # Dry run: no WhatsApp sent, Line_Tracker / Call_Tasks / Meeting_Tasks not changed (Alert_Log still gets DRY_RUN rows)
     test_mode: bool
     update_tracker_in_test_mode: bool
-    # Pilot: only pilot vendors are processed, and every message goes to pilot_mobile instead of the real number
+    # Pilot: only the selected vendors are processed, and every message goes to pilot_mobile instead of the real number
     pilot_mode: bool
-    pilot_vendor_codes: frozenset[str]
+    pilot_vendor_codes: frozenset[str]  # the selected vendors (chosen on the dashboard)
     pilot_mobile: str
     ultramsg_base_url: str
     ultramsg_token: str
@@ -26,13 +26,21 @@ class Settings:
     max_lines_per_message: int
     send_interval_seconds: float
     run_at: str  # daily run time, HH:MM in IST
-    # Minutes to wait after level 0, 1, 2 before escalating to the next level
-    intervals_minutes: tuple = (1440, 1440, 1440)
+    # Overdue lines are checked once per period (1440 = one IST day); each check in a row a line is still
+    # overdue confirms the next scenario (domain/overdue.py)
+    check_period_minutes: float = 1440
     # Scenario 3: the voice agent also rings the Scenario 3 number (pilot: pilot_mobile)
     agent_calls: bool = True
     # Day 3: a Google Meet invite is created; in pilot mode it only goes to pilot_email
     meet_invites: bool = True
     pilot_email: str = ""
+    # "selected": only pilot_vendor_codes are followed up (to their real numbers unless pilot_mode); "all": every vendor
+    vendor_scope: str = "selected"
+
+    @property
+    def vendor_filter(self) -> frozenset[str] | None:
+        """The only vendors a run follows up, or None for every vendor."""
+        return self.pilot_vendor_codes if self.pilot_mode or self.vendor_scope != "all" else None
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -53,12 +61,11 @@ class Settings:
             max_lines_per_message=int(os.getenv("FOLLOWUP_MAX_LINES_PER_MESSAGE", "15")),
             send_interval_seconds=float(os.getenv("FOLLOWUP_SEND_INTERVAL_SECONDS", "1.5")),
             run_at=os.getenv("FOLLOWUP_RUN_AT", "08:30"),
-            intervals_minutes=tuple(
-                float(x) for x in os.getenv("FOLLOWUP_INTERVALS_MINUTES", "1440,1440,1440").split(",")
-            ),
+            check_period_minutes=float(os.getenv("FOLLOWUP_CHECK_PERIOD_MINUTES", "1440")),
             agent_calls=env_bool("FOLLOWUP_AGENT_CALLS", True),
             meet_invites=env_bool("FOLLOWUP_MEET_INVITES", True),
             pilot_email=os.getenv("FOLLOWUP_PILOT_EMAIL", "").strip(),
+            vendor_scope="all" if os.getenv("FOLLOWUP_VENDOR_SCOPE", "selected").strip().lower() == "all" else "selected",
         )
 
     @property

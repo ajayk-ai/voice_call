@@ -126,7 +126,7 @@
   .pipe .seg { min-width: 3px; height: 100%; cursor: pointer; transition: opacity .15s; }
   .pipe .seg:first-child { border-radius: 4px 0 0 4px; } .pipe .seg:last-child { border-radius: 0 4px 4px 0; }
   .pipe:hover .seg { opacity: .55; } .pipe .seg:hover { opacity: 1; }
-  .stages { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; margin-top: 16px; }
+  .stages { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-top: 16px; }
   .stage { height: auto; display: grid; gap: 4px; justify-items: start; text-align: left; padding: 12px 14px; border-radius: var(--r-sm);
     border: 1px solid var(--hair); background: var(--surface); font-weight: 400; white-space: normal; }
   .stage[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); background: var(--accent-soft); }
@@ -167,7 +167,7 @@
   /* ---------- table ---------- */
   .tablewrap { overflow-x: auto; }
   table { border-collapse: separate; border-spacing: 0; width: 100%; font-size: 13.5px; }
-  th, td { text-align: left; vertical-align: middle; padding: 12px 12px; border-bottom: 1px solid var(--hair-2); }
+  th, td { text-align: left; vertical-align: middle; padding: 12px 10px; border-bottom: 1px solid var(--hair-2); }
   .compact th, .compact td { padding-top: 7px; padding-bottom: 7px; }
   th:first-child, td:first-child { padding-left: 24px; } th:last-child, td:last-child { padding-right: 24px; }
   thead th { background: var(--surface-2); border-bottom: 1px solid var(--hair); font-size: 11.5px; font-weight: 600; color: var(--ink-3);
@@ -196,9 +196,9 @@
   .gh .push { margin-left: auto; display: flex; gap: 12px; align-items: center; }
   .cell-main { font-weight: 600; }
   .cell-sub { color: var(--ink-3); font-size: 12.5px; white-space: nowrap; }
-  td.mat { min-width: 160px; max-width: 230px; }
+  td.mat { min-width: 150px; max-width: 200px; }
   td.mat .cell-main { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  td.vend { max-width: 170px; } td.vend .cell-sub { overflow: hidden; text-overflow: ellipsis; } td.vend .cell-main { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  td.vend { max-width: 150px; } td.vend .cell-sub { overflow: hidden; text-overflow: ellipsis; } td.vend .cell-main { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .late { display: inline-flex; align-items: center; gap: 8px; font-weight: 650; }
   .sev-0 { background: var(--ink-3); opacity: .5; } .sev-1 { background: var(--warning); } .sev-2 { background: var(--serious); } .sev-3, .sev-4 { background: var(--critical); }
   .st { display: grid; grid-template-columns: 16px auto; column-gap: 6px; align-items: center; white-space: nowrap; }
@@ -281,7 +281,7 @@
 
   .toolbar { background: var(--surface-2); border-radius: var(--r) var(--r) 0 0; }
 
-  .st { display: inline-grid; padding: 6px 10px; border-radius: 8px; border: 1px solid transparent; min-width: 96px; }
+  .st { display: inline-grid; padding: 5px 8px; border-radius: 8px; border: 1px solid transparent; }
   .st.done { background: var(--green-soft); border-color: color-mix(in srgb, var(--green) 28%, transparent); }
   .st.due { background: var(--warning-soft); border-color: color-mix(in srgb, var(--warning) 45%, transparent); }
   .st.scheduled { background: var(--blue-soft); border-color: color-mix(in srgb, var(--blue) 28%, transparent); }
@@ -299,6 +299,29 @@
   .facts > div { background: var(--surface-2); border: 1px solid var(--hair-2); border-radius: 8px; padding: 10px 12px; }
   .statusbox { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 12px; border-radius: 10px; background: var(--surface-2); border: 1px solid var(--hair-2); }
 
+  /* ---------- scenario tabs + overdue streak ---------- */
+  .tabs { display: flex; gap: 4px; padding: 0 24px; border-bottom: 1px solid var(--hair); overflow-x: auto; scrollbar-width: none; }
+  .tab { all: unset; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; padding: 18px 14px 14px; margin-bottom: -1px;
+    font-weight: 600; font-size: 14px; color: var(--ink-3); border-bottom: 3px solid transparent; white-space: nowrap; }
+  .tab:hover { color: var(--ink); }
+  .tab[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--tc, var(--accent)); }
+  .tab:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: 6px; }
+  .tab .sw { width: 10px; height: 10px; border-radius: 3px; }
+  .tab .cnt { font-size: 12px; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: var(--hair-2); color: var(--ink-2); }
+  .tab[aria-selected="true"] .cnt { background: var(--accent-soft); color: var(--accent-ink); }
+  .tabnote { padding: 14px 24px 0; color: var(--ink-3); font-size: 13px; }
+  .tabnote b { color: var(--ink); }
+  .streak { display: grid; gap: 5px; }
+  .strip { display: inline-flex; gap: 3px; align-items: center; }
+  .strip i { width: 10px; height: 16px; border-radius: 3px; }
+  .strip i.on { background: var(--red); }
+  .strip i.off { border: 1.5px dashed var(--hair); }
+  .strip i.now { box-shadow: 0 0 0 2px var(--surface), 0 0 0 3.5px color-mix(in srgb, var(--red) 55%, transparent); }
+  .streak .t { font-size: 12px; color: var(--ink-3); white-space: nowrap; }
+  .st.queued { background: var(--neutral-soft); border-color: var(--hair); } .st.queued svg { color: var(--accent); }
+  .pill.upcoming { background: var(--info-soft); color: var(--ink); } .pill.upcoming svg { color: var(--accent); }
+  .banner.info { background: var(--accent-soft); color: var(--ink); } .banner.info svg { color: var(--accent); }
+
   /* ---------- responsive ---------- */
   @media (max-width: 1180px) { .kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
   @media (max-width: 900px) { .stages { grid-template-columns: repeat(3, minmax(0, 1fr)); } .legend-line { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
@@ -314,6 +337,26 @@
     .field > span { min-width: 72px; } .tfoot { padding: 14px 16px; } .search kbd { display: none; }
     .hero-in { padding-top: 24px; padding-bottom: 88px; } .hero h1 { font-size: 26px; } .hero .actions { margin-left: 0; }
   }
+  /* ---------- vendor scenario numbers ---------- */
+  input[type="checkbox"] { width: 16px; height: 16px; padding: 0; accent-color: var(--accent); box-shadow: none; }
+  .check { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--ink-2); cursor: pointer; }
+  #nTable td.num-cell { min-width: 150px; }
+  #nTable td.vend { max-width: 240px; }
+  .saved { color: var(--good); font-size: 13px; font-weight: 600; }
+  .form { display: grid; gap: 16px; }
+  .form label { display: grid; gap: 6px; font-weight: 600; font-size: 13px; }
+  .form label small { font-weight: 500; color: var(--ink-3); }
+  .form .hint { font-weight: 400; font-size: 12.5px; color: var(--ink-3); }
+  .form .row { display: flex; gap: 8px; flex-wrap: wrap; }
+  textarea { font: 13px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; padding: 8px 10px; border: 1px solid var(--hair); border-radius: var(--r-sm);
+    background: var(--surface); color: var(--ink); min-height: 140px; resize: vertical; width: 100%; }
+  textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent); outline: none; }
+  .scope { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; }
+  .scope .seg-ctl button { padding: 0 14px; }
+  .selbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 12px 24px; background: var(--accent-soft); border-bottom: 1px solid var(--hair); font-size: 13px; }
+  #nTable td.pick, #nTable th.pick { width: 1%; padding-right: 0; }
+  #nTable tr.on td { background: color-mix(in srgb, var(--accent) 6%, transparent); }
+  .summary { display: grid; gap: 6px; padding: 12px 14px; border: 1px solid var(--hair); border-radius: var(--r-sm); background: var(--surface-2); font-size: 13px; }
   .foot { display: flex; flex-wrap: wrap; gap: 6px 16px; justify-content: space-between; padding-top: 8px; padding-bottom: 32px; color: var(--ink-3); font-size: 12.5px; }
   @media print { .gnav, .toolbar, .tfoot, .actions { display: none !important; } .hero { background: none; color: var(--ink); } .hero h1 { color: var(--ink); } .card { box-shadow: none; } }
 </style>
@@ -376,15 +419,22 @@
       <div class="pipe" id="pipe" role="img"></div>
       <div class="stages" id="stages"></div>
       <div class="legend-line" id="legend"></div>
+      <div class="banner info" id="firstNote" style="margin-top:16px" hidden>
+        <svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg>
+        <span class="grow" id="firstText"></span>
+      </div>
       <div class="banner warn" id="pilotNote" style="margin-top:16px" hidden>
         <svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16h.01"/></svg>
-        <span class="grow">Pilot phase: only selected vendors are being followed up right now. Lines of other vendors show <b>On hold</b>.</span>
+        <span class="grow" id="pilotNoteText"></span>
+        <button class="link" id="toVendors">Choose vendors →</button>
       </div>
     </div>
   </section>
 
   <section class="card" aria-labelledby="listH">
     <h2 id="listH" class="sr">Overdue PO lines</h2>
+    <div class="tabs" role="tablist" aria-label="Confirmed scenario" id="tabs"></div>
+    <p class="tabnote" id="tabnote"></p>
     <div class="toolbar">
       <div class="tb-row">
         <label class="search">
@@ -400,7 +450,7 @@
           <select id="fNext">
             <option value="">Any</option>
             <option value="due">Due now</option>
-            <option value="scheduled">Scheduled</option>
+            <option value="upcoming">Waiting for confirmation</option>
             <option value="on_hold">On hold</option>
             <option value="meeting">Meeting stage</option>
           </select>
@@ -442,6 +492,64 @@
       </div>
     </div>
   </section>
+
+  <section class="card" aria-labelledby="numH" id="vendorsCard">
+    <div class="card-h">
+      <h2 id="numH">Vendors to follow up</h2>
+      <p id="numNote">Choose which vendors the follow-up runs for, and who gets the WhatsApp at each scenario.</p>
+      <span class="saved" id="nSaved" role="status"></span>
+    </div>
+    <div class="card-b" style="display:grid;gap:12px;padding-bottom:4px">
+      <div class="scope">
+        <div class="seg-ctl" role="group" aria-label="Which vendors the follow-up runs for">
+          <button data-scope="selected">Selected vendors only</button><button data-scope="all">All vendors</button>
+        </div>
+        <span id="scopeText" class="muted" style="font-size:13px"></span>
+      </div>
+      <div class="banner warn" id="pilotWarn" hidden>
+        <svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16h.01"/></svg>
+        <span class="grow" id="pilotWarnText"></span>
+      </div>
+    </div>
+    <div class="toolbar">
+      <div class="tb-row">
+        <label class="search">
+          <span class="sr">Search vendors</span>
+          <svg class="i" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+          <input id="nQ" type="search" placeholder="Search vendor name, code or number" autocomplete="off">
+        </label>
+        <div class="seg-ctl" role="group" aria-label="Show">
+          <button data-show="selected">Selected <span class="num" id="cntSel"></span></button><button data-show="overdue">With overdue lines <span class="num" id="cntOd"></span></button><button data-show="all">All <span class="num" id="cntAll"></span></button>
+        </div>
+        <span class="spacer"></span>
+        <button id="nDownload" title="Every vendor with its follow-up choice and numbers, to edit in Excel and upload again"><svg class="i" viewBox="0 0 24 24"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2"/></svg>Download CSV</button>
+        <button id="nUpload"><svg class="i" viewBox="0 0 24 24"><path d="M12 15V3m0 0L8 7m4-4l4 4M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2"/></svg>Bulk upload</button>
+        <button id="nAdd"><svg class="i" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>Add vendor</button>
+      </div>
+    </div>
+    <div class="selbar" id="selBar" role="status" hidden>
+      <span class="grow" id="selText"></span>
+      <button class="primary" id="selSave">Save selection</button><button id="selUndo">Discard</button>
+    </div>
+    <div class="tablewrap">
+      <table id="nTable">
+        <caption class="sr">Vendors: followed up or not, and their Scenario 1, 2 and 3 WhatsApp numbers</caption>
+        <thead><tr>
+          <th scope="col" class="pick">Follow up</th>
+          <th scope="col">Vendor</th><th scope="col" class="r">Overdue lines</th>
+          <th scope="col">Scenario 1<small>Vendor planner + coordinator</small></th>
+          <th scope="col">Scenario 2<small>Vendor management</small></th>
+          <th scope="col">Scenario 3<small>Voice agent call</small></th>
+          <th scope="col"><span class="sr">Edit</span></th>
+        </tr></thead>
+        <tbody id="nBody"><tr><td colspan="7" class="empty">Loading vendors…</td></tr></tbody>
+      </table>
+    </div>
+    <div class="tfoot">
+      <span id="nRange" class="num"></span>
+      <button class="link" id="nMore" hidden>Show all</button>
+    </div>
+  </section>
 </main>
 
 <footer class="wrap foot"><span>PO Agent · Overdue purchase orders</span><span>Times in IST · refreshes every 2 minutes · Scenario dates come from the follow-up log</span></footer>
@@ -465,6 +573,7 @@ const ICON = {
   done: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
   due: '<circle cx="12" cy="12" r="9"/><path d="M12 7.5v5M12 16.2h.01"/>',
   scheduled: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  queued: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
   on_hold: '<circle cx="12" cy="12" r="9"/><path d="M10 9v6M14 9v6"/>',
   upcoming: '<path d="M7 12h10"/>',
   meeting: '<rect x="3.5" y="5" width="17" height="15" rx="2"/><path d="M8 3v4M16 3v4M3.5 10h17"/>',
@@ -483,10 +592,11 @@ const AGES = [
   { key: "91-180", label: "91–180", min: 90, max: 180 },
   { key: "180+", label: "180+", min: 180, max: Infinity },
 ];
-const STATE_RANK = { due: 0, scheduled: 1, on_hold: 2, upcoming: 3, done: 4 };
+const STATE_RANK = { due: 0, queued: 1, upcoming: 2, on_hold: 3, done: 4 };
 const DEFAULTS = { q: "", vendor: "", buyer: "", stage: "", next: "", age: "", sort: "od", dir: "desc", view: "po", page: 1, size: 50 };
 
 let data = null, lines = [], state = { ...DEFAULTS }, density = "comfortable", collapsed = new Set(), code = "", timer = null, loading = false, lastFocus = null;
+let nums = null, numsLimit = 50, wantNums = true;  // vendor scenario numbers (Phone_Master)
 try {
   code = sessionStorage.getItem("dashboard_code") || sessionStorage.getItem("admin_code") || sessionStorage.getItem("access_code") || "";
   const saved = JSON.parse(localStorage.getItem("dash_prefs") || "{}");
@@ -523,30 +633,42 @@ function ageBucket(od) { return AGES.findIndex((a) => od > a.min && od <= a.max)
 function qty(s) { const v = parseFloat(String(s).replace(/,/g, "")); return Number.isFinite(v) ? v : -Infinity; }
 
 // ---------- what a line's status means ----------
+// One check per day in production; the test environment checks every few minutes
+const daily = () => !data || data.check_period_minutes >= 1440;
+const checkWord = (k) => daily() ? (k === 1 ? "day" : "days") : (k === 1 ? "check" : "checks");
+const checkDate = (iso) => fmtDate(iso, !daily());
 function scenarioCell(s) {
   const t = {
     done: [s.simulated ? "Simulated" : "Sent", fmtDate(s.at)],
     due: ["Due now", "next run"],
-    scheduled: ["Scheduled", fmtDate(s.at, true)],
-    on_hold: ["On hold", "pilot"],
-    upcoming: ["Not yet", ""],
+    queued: ["Confirmed", "after previous"],
+    on_hold: ["On hold", "not selected"],
+    upcoming: ["Not yet", s.at ? "from " + checkDate(s.at) : ""],
   }[s.state];
   const tip = { done: s.simulated ? "Test run – no WhatsApp was actually sent" : "Sent on " + fmtDate(s.at, true),
-    due: "Goes out on the next follow-up run", scheduled: "Goes out on the first run after " + fmtDate(s.at, true) + " IST",
-    on_hold: "Pilot mode: this vendor is not being followed up yet", upcoming: "Starts after the previous scenario" }[s.state];
+    due: "Confirmed by the overdue streak – goes out on the next follow-up run",
+    queued: "Confirmed by the overdue streak – goes out after the scenario before it (scenarios are never skipped)",
+    on_hold: "This vendor is not selected for follow-up (see Vendors to follow up)",
+    upcoming: s.at ? "Confirmed by the check of " + checkDate(s.at) + " if the line is still overdue then" : "" }[s.state];
   return `<div class="st ${s.state}" title="${esc(tip)}">${icon(s.state)}<span class="l">${t[0]}</span>${t[1] ? `<span class="d">${esc(t[1])}</span>` : ""}</div>`;
 }
 function nextStep(l) {
   if (l.meeting) return { kind: "meeting", rank: 5, text: "Meeting stage" };
   const i = l.scenarios.findIndex((s) => s.state !== "done");
-  if (i < 0) return { kind: "done", rank: 4, text: "Meeting next" };
+  if (i < 0) return l.stage >= 3 ? { kind: "due", rank: 0, text: "Meeting due now" } : { kind: "upcoming", rank: 2, text: "Meeting next" };
   const s = l.scenarios[i], name = "Scenario " + (i + 1);
   if (s.state === "on_hold") return { kind: "on_hold", rank: 3, text: "On hold" };
   if (s.state === "due") return { kind: "due", rank: 0, text: name + " due now" };
-  return { kind: "scheduled", rank: 1, text: `${name} · ${fmtDate(s.at, true)}`, at: s.at };
+  return { kind: "upcoming", rank: 2, text: `${name} · from ${checkDate(s.at)}`, at: s.at };
+}
+function streakCell(l) {
+  const marks = l.history.map((h, i) => `<i class="${h.overdue ? "on" : "off"}${i === l.history.length - 1 ? " now" : ""}"
+    title="${esc(checkDate(h.at))}: ${h.overdue ? "overdue" : "not overdue"}"></i>`).join("");
+  const k = l.streak >= l.history.length && l.history.length >= 7 ? `${l.streak}+` : l.streak;
+  return `<div class="streak"><span class="strip" aria-hidden="true">${marks}</span><span class="t">${k} ${checkWord(l.streak)} in a row</span></div>`;
 }
 function nextPill(x) {
-  const ic = { meeting: "meeting", done: "done", on_hold: "on_hold", due: "due", scheduled: "scheduled" }[x.kind];
+  const ic = { meeting: "meeting", done: "done", on_hold: "on_hold", due: "due", upcoming: "scheduled" }[x.kind];
   return `<span class="pill ${x.kind}">${icon(ic)}${esc(x.text)}</span>`;
 }
 function lateCell(od) {
@@ -573,6 +695,7 @@ async function load() {
     }));
     $("gate").hidden = true; $("app").hidden = false; $("errBanner").hidden = true;
     renderAll();
+    if (wantNums) { wantNums = false; loadNumbers(); }
   } catch (e) {
     $("errText").textContent = "Could not load the latest data: " + e.message;
     $("errBanner").hidden = false;
@@ -597,7 +720,7 @@ $("gateForm").onsubmit = (e) => {
   if (!$("gateCodeWrap").hidden) { code = $("gateCode").value; try { sessionStorage.setItem("dashboard_code", code); } catch (err) {} }
   load();
 };
-$("refresh").onclick = load;
+$("refresh").onclick = () => { wantNums = true; load(); };
 $("errRetry").onclick = load;
 
 function skeleton() {
@@ -607,7 +730,7 @@ function skeleton() {
 // ---------- header, KPIs, pipeline ----------
 function renderTop() {
   const s = data.summary;
-  $("asof").textContent = (data.synced_at ? `PO data as of ${fmtDate(data.synced_at, true)} · ` : "") + `Updated ${ago(data.now)}`;
+  $("asof").textContent = asof();
   const tiles = [
     ["Overdue lines", n(s.lines), `across ${n(s.pos)} purchase orders`, "blue", "lines"],
     ["Vendors affected", n(s.vendors), `${(s.lines / Math.max(s.vendors, 1)).toFixed(1)} lines per vendor on average`, "violet", "vendors"],
@@ -623,7 +746,7 @@ function renderTop() {
   $("pipe").setAttribute("aria-label", data.stages.map((st, i) => `${st}: ${s.by_stage[i]}`).join(", "));
   $("pipe").innerHTML = data.stages.map((st, i) => s.by_stage[i]
     ? `<div class="seg" data-stage="${i}" style="flex:${s.by_stage[i]};background:var(--stage-${i})" data-tip="<b>${esc(st)}</b><br>${n(s.by_stage[i])} lines · ${pct(s.by_stage[i], total)}%"></div>` : "").join("");
-  const hints = ["Waiting for Scenario 1", "Scenario 1 sent", "Scenario 2 sent", "Scenario 3 done", "Final step"];
+  const hints = [`Overdue 1 ${checkWord(1)}`, `2 ${checkWord(2)} in a row`, `3 ${checkWord(3)} in a row`, `4+ ${checkWord(4)} in a row`];
   $("stages").innerHTML = data.stages.map((st, i) => `
     <button class="stage" data-stage="${i}" aria-pressed="${state.stage === String(i)}" style="--sc:var(--stage-${i})">
       <span class="top"><i class="sw" style="background:var(--stage-${i})"></i>${hints[i]}</span>
@@ -632,7 +755,12 @@ function renderTop() {
     </button>`).join("");
   $("legend").innerHTML = data.scenarios.map((sc, i) => `<div class="lg"><span class="no">${i + 1}</span><b>${esc(sc.name)} · ${esc(sc.title)}</b><span>${esc(sc.who)}</span></div>`).join("")
     + `<div class="lg meet"><span class="no">${icon("meeting")}</span><b>Then · Management meeting</b><span>Buyer and SCM head meet the vendor</span></div>`;
-  $("pilotNote").hidden = !(data.pilot_mode && lines.some((l) => l.on_hold));
+  $("pilotNote").hidden = !data.selected_only;
+  $("pilotNoteText").innerHTML = `Only the <b>${n(data.selected_vendors)}</b> selected vendor${data.selected_vendors === 1 ? " is" : "s are"} followed up right now. `
+    + `Lines of other vendors show <b>On hold</b>.` + (data.pilot_mode ? " Pilot mode: messages go to the pilot number, not to the vendors." : "");
+  $("firstNote").hidden = s.earlier_checks > 0;
+  $("firstText").textContent = `First overdue check: every overdue line starts at Scenario 1. A line still overdue at the next `
+    + `${daily() ? "daily " : ""}check moves to Scenario 2, then Scenario 3, then the management meeting.`;
 
   // filter options
   const vendors = [...new Map(data.pos.map((p) => [p.vendor_code, p.vendor_name])).entries()].sort((a, b) => a[1].localeCompare(b[1]));
@@ -648,6 +776,27 @@ function renderTop() {
 // ---------- filter + sort ----------
 const buyerOf = (p) => p.buyer || (p.purchasing_group ? "PG " + p.purchasing_group : "");
 function vendorCodeFromInput(v) { const m = /\(([^()]*)\)\s*$/.exec(v); return m ? m[1] : v.trim(); }
+function asof() {
+  return [data.synced_at && `PO data as of ${fmtDate(data.synced_at, true)}`,
+    `${daily() ? "Daily" : `Every ${data.check_period_minutes} min`} overdue check${data.last_check ? ` · previous ${checkDate(data.last_check)}` : ""}`,
+    `Updated ${ago(data.now)}`].filter(Boolean).join(" · ");
+}
+const TAB_NOTES = [
+  (h) => `<b>Scenario 1 · Vendor reminder</b> – overdue in today's check only (${h}). The vendor planner and coordinator get a WhatsApp.`,
+  (h) => `<b>Scenario 2 · Vendor management</b> – overdue ${h}. Vendor management is asked to step in.`,
+  (h) => `<b>Scenario 3 · Buyer call</b> – overdue ${h}. The buyer calls the vendor, with the voice agent.`,
+  (h) => `<b>Management meeting</b> – overdue ${h}. Buyer and SCM head meet the vendor.`,
+];
+function renderTabs() {
+  const s = data.summary;
+  const tabs = [["", "All overdue", s.lines, "var(--accent)"],
+    ...data.stages.map((st, i) => [String(i), i < 3 ? st : "Meeting", s.by_stage[i], `var(--stage-${i})`])];
+  $("tabs").innerHTML = tabs.map(([k, label, c, col]) => `<button class="tab" role="tab" data-tab="${k}" aria-selected="${state.stage === k}"
+    style="--tc:${col}">${k !== "" ? `<i class="sw" style="background:${col}"></i>` : ""}${esc(label)}<span class="cnt num">${n(c)}</span></button>`).join("");
+  const hints = [`1 ${checkWord(1)}`, `2 ${checkWord(2)} in a row`, `3 ${checkWord(3)} in a row`, `4+ ${checkWord(4)} in a row`];
+  $("tabnote").innerHTML = state.stage === "" ? `Every PO line with <b>OD Days &gt; 0</b>, by how many ${daily() ? "daily " : ""}checks in a row it has been overdue.`
+    : TAB_NOTES[+state.stage](hints[+state.stage]);
+}
 function filtered() {
   const q = state.q.trim().toLowerCase(), vc = vendorCodeFromInput(state.vendor), age = AGES.find((a) => a.key === state.age);
   return lines.filter((l) => (!q || l.hay.includes(q))
@@ -663,6 +812,7 @@ const SORTS = {
   material: (l) => l.desc || l.material,
   pending: (l) => qty(l.pending),
   due: (l) => -l.od,
+  streak: (l) => l.streak,
   od: (l) => l.od,
   s1: (l) => STATE_RANK[l.scenarios[0].state] * 1e13 + (l.scenarios[0].at ? Date.parse(l.scenarios[0].at) : 0),
   s2: (l) => STATE_RANK[l.scenarios[1].state] * 1e13 + (l.scenarios[1].at ? Date.parse(l.scenarios[1].at) : 0),
@@ -686,8 +836,8 @@ const COLS = [
   { key: "vendor", label: "Vendor", view: "lines" },
   { key: "material", label: "Material" },
   { key: "pending", label: "Pending qty", r: true },
-  { key: "due", label: "Due date" },
   { key: "od", label: "Days late", r: true, first: "desc" },
+  { key: "streak", label: "Overdue streak", first: "desc" },
   { key: "s1", label: "Scenario 1", sub: "Vendor reminder" },
   { key: "s2", label: "Scenario 2", sub: "Vendor management" },
   { key: "s3", label: "Scenario 3", sub: "Buyer call" },
@@ -712,8 +862,8 @@ function lineRow(l) {
       case "Vendor": return `<td class="vend"><div class="cell-main" title="${esc(l.p.vendor_name)}">${esc(l.p.vendor_name)}</div><div class="cell-sub">${esc(l.p.vendor_code)}${buyerOf(l.p) ? " · " + esc(buyerOf(l.p)) : ""}</div></td>`;
       case "Material": return `<td class="mat"><div class="cell-main" title="${esc(l.desc || l.material)}">${esc(l.desc || l.material || "-")}</div>${l.desc && l.material ? `<div class="cell-sub">${esc(l.material)}</div>` : ""}</td>`;
       case "Pending qty": return `<td class="r num">${esc(l.pending || "-")} <span class="muted">${esc(l.uom)}</span></td>`;
-      case "Due date": return `<td class="num" style="white-space:nowrap">${esc(l.due)}</td>`;
-      case "Days late": return `<td class="r">${lateCell(l.od)}</td>`;
+      case "Days late": return `<td class="r">${lateCell(l.od)}<div class="cell-sub" style="margin-top:4px">due ${esc(l.due)}</div></td>`;
+      case "Overdue streak": return `<td>${streakCell(l)}</td>`;
       case "Next step": return `<td>${nextPill(l.next)}</td>`;
       default: return `<td>${scenarioCell(l.scenarios[+c.key.slice(1) - 1])}</td>`;
     }
@@ -785,7 +935,7 @@ function renderControls() {
   if (state.q) chips.push(["q", `Search: “${state.q}”`]);
   if (state.vendor) chips.push(["vendor", "Vendor: " + state.vendor]);
   if (state.buyer) chips.push(["buyer", "Buyer: " + state.buyer]);
-  if (state.stage !== "") chips.push(["stage", "Stage: " + data.stages[+state.stage]]);
+  if (state.stage !== "") chips.push(["stage", "Tab: " + data.stages[+state.stage]]);
   if (state.next) chips.push(["next", "Next step: " + $("fNext").selectedOptions[0].text]);
   if (state.age) chips.push(["age", "Days late: " + AGES.find((a) => a.key === state.age).label.replace(" days", "")]);
   $("active").hidden = !chips.length;
@@ -801,11 +951,11 @@ function writeUrl() {
   history.replaceState(null, "", location.pathname + (u.toString() ? "?" + u : ""));
   try { localStorage.setItem("dash_prefs", JSON.stringify({ view: state.view, size: state.size, density })); } catch (e) {}
 }
-function renderAll() { renderTop(); renderControls(); renderTable(); writeUrl(); }
+function renderAll() { renderTop(); renderTabs(); renderControls(); renderTable(); writeUrl(); }
 function update(patch, keepPage = false) {
   Object.assign(state, patch);
   if (!keepPage) state.page = 1;
-  renderControls(); renderTable(); writeUrl();
+  renderTabs(); renderControls(); renderTable(); writeUrl();
   // stage and age buttons live in the top section
   document.querySelectorAll(".stage").forEach((b) => b.setAttribute("aria-pressed", state.stage === b.dataset.stage));
   document.querySelectorAll("[data-age]").forEach((b) => b.setAttribute("aria-pressed", state.age === b.dataset.age));
@@ -822,10 +972,12 @@ $("fSize").addEventListener("change", (e) => update({ size: +e.target.value }));
 document.addEventListener("click", (e) => {
   const t = e.target.closest("button, .seg, tr.line, tr.group");
   if (!t || !data) return;
+  if (t.dataset.editVendor !== undefined) return openNumbers(t.dataset.editVendor);
   if (t.dataset.sort) {
     const same = state.sort === t.dataset.sort;
     return update({ sort: t.dataset.sort, dir: same ? (state.dir === "asc" ? "desc" : "asc") : t.dataset.first });
   }
+  if (t.dataset.tab !== undefined) return update({ stage: t.dataset.tab });
   if (t.dataset.stage !== undefined) return update({ stage: state.stage === t.dataset.stage ? "" : t.dataset.stage });
   if (t.dataset.age !== undefined) return update({ age: t.dataset.age });
   if (t.dataset.view) return update({ view: t.dataset.view });
@@ -875,6 +1027,11 @@ function openDrawer(key) {
         <span class="stagepill"><i class="dot" style="background:var(--stage-${l.stage});width:10px;height:10px;border-radius:3px"></i>${esc(l.stage_name)}</span></div>
     </section>
     <section>
+      <h3>Overdue checks</h3>
+      <div class="statusbox" style="display:grid;gap:8px">${streakCell(l)}
+        <span class="cell-sub" style="white-space:normal">${l.history.map((h) => `${esc(checkDate(h.at))}: ${h.overdue ? "overdue" : "not overdue"}`).join(" · ")}</span></div>
+    </section>
+    <section>
       <h3>Line</h3>
       <dl class="facts">
         <div><dt>Days late</dt><dd>${lateCell(l.od)}</dd></div>
@@ -903,7 +1060,8 @@ function openDrawer(key) {
         <div><dt>Buyer</dt><dd>${esc(buyerOf(p) || "-")}</dd></div>
         <div><dt>Overdue lines in this PO</dt><dd>${p.lines.length}</dd></div>
       </dl>
-      <p style="margin-top:14px"><button class="link" id="dVendor">Show all lines of this vendor →</button></p>
+      <p style="margin-top:14px;display:flex;gap:18px;flex-wrap:wrap"><button class="link" id="dVendor">Show all lines of this vendor →</button>
+        <button class="link" data-edit-vendor="${esc(p.vendor_code)}">Edit this vendor's scenario numbers →</button></p>
     </section>`;
   $("dVendor").onclick = () => { closeDrawer(); update({ vendor: `${p.vendor_name} (${p.vendor_code})` }); };
   $("scrim").hidden = $("drawer").hidden = false;
@@ -919,28 +1077,320 @@ $("dClose").onclick = closeDrawer;
 $("scrim").onclick = closeDrawer;
 $("drawer").addEventListener("keydown", (e) => {  // keep Tab inside the panel
   if (e.key !== "Tab") return;
-  const f = [...$("drawer").querySelectorAll("button, [href], [tabindex]")].filter((x) => !x.disabled);
+  const f = [...$("drawer").querySelectorAll("button, input, [href], [tabindex]")].filter((x) => !x.disabled);
   if (!f.length) return;
   if (e.shiftKey && document.activeElement === f[0]) { e.preventDefault(); f[f.length - 1].focus(); }
   else if (!e.shiftKey && document.activeElement === f[f.length - 1]) { e.preventDefault(); f[0].focus(); }
 });
 
+// ---------- vendor scenario numbers (Phone_Master) ----------
+const SCENARIO_WHO = ["Vendor planner + coordinator", "Vendor management", "Voice agent call"];
+async function api(path, opts = {}) {
+  const res = await fetch(`/dashboard/api/${env}${path}`, { ...opts, headers: { "X-Access-Code": code, "Content-Type": "application/json" } });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || res.statusText);
+  return body;
+}
+// picks: the ticked vendors (saved selection + ticks not saved yet); showMode: which vendors the table lists
+let picks = new Set(), showMode = null;
+const savedSel = () => new Set([...nums.vendors.filter((v) => v.selected).map((v) => v.code), ...nums.unknown_selected]);
+function selDiff() {
+  const s = savedSel();
+  return { add: [...picks].filter((c) => !s.has(c)), remove: [...s].filter((c) => !picks.has(c)) };
+}
+function flash(msg) {
+  $("nSaved").textContent = msg;
+  clearTimeout(flash.t); flash.t = setTimeout(() => { $("nSaved").textContent = ""; }, 8000);
+}
+async function loadNumbers() {
+  try {
+    nums = await api("/vendor-numbers");
+  } catch (e) {
+    $("nBody").innerHTML = `<tr><td colspan="7" class="empty"><b>Could not load vendors</b>${esc(e.message)}</td></tr>`;
+    return;
+  }
+  picks = savedSel();
+  if (showMode === null) showMode = picks.size ? "selected" : "overdue";
+  $("numNote").textContent = "Tick the vendors the follow-up runs for, and set who gets the WhatsApp at each scenario. "
+    + (env === "prod" ? "Numbers are saved to the Phone_Master tab of the Google Sheet." : "Test data: saved to the test database only.");
+  renderNumbers();
+}
+// What a run will use for a blank cell: Master's numbers, and for Scenario 3 the Scenario 2 number
+function blankText(v, i) {
+  if (i === 2) return "Same as Scenario 2";
+  return v.fallback[i] ? `From Master: ${v.fallback[i]}` : "No number";
+}
+function renderScope() {
+  const all = nums.scope === "all";
+  document.querySelectorAll("[data-scope]").forEach((b) => b.setAttribute("aria-pressed", b.dataset.scope === nums.scope));
+  const k = savedSel().size;
+  $("scopeText").innerHTML = all
+    ? "Runs follow up <b>every vendor</b> with overdue lines. Ticks are kept for when you switch back."
+    : k ? `Runs follow up only the <b>${n(k)}</b> ticked vendor${k === 1 ? "" : "s"}. Every other vendor is On hold.`
+      : "No vendor is ticked yet, so runs send nothing. Tick vendors below and save.";
+  const warn = [];
+  if (nums.pilot_mode) warn.push("Pilot mode is on (Follow-up admin): messages for these vendors go to the pilot number, not to the vendors.");
+  if (nums.unknown_selected.length) warn.push(`Selected but not in Master or Phone_Master: ${nums.unknown_selected.join(", ")}.`);
+  $("pilotWarn").hidden = !warn.length;
+  $("pilotWarnText").textContent = warn.join(" ");
+}
+function renderSelBar() {
+  const { add, remove } = selDiff();
+  $("selBar").hidden = !add.length && !remove.length;
+  $("selText").innerHTML = `<b>Not saved yet:</b> ${[add.length && `${add.length} to add`, remove.length && `${remove.length} to remove`].filter(Boolean).join(", ")}`
+    + ` · ${n(picks.size)} vendor${picks.size === 1 ? "" : "s"} ticked`;
+  $("cntSel").textContent = n(picks.size);
+}
+function renderNumbers() {
+  if (!nums) return;
+  renderScope();
+  document.querySelectorAll("[data-show]").forEach((b) => b.setAttribute("aria-pressed", b.dataset.show === showMode));
+  $("cntOd").textContent = n(nums.vendors.filter((v) => v.overdue_lines > 0).length);
+  $("cntAll").textContent = n(nums.vendors.length);
+  const q = $("nQ").value.trim().toLowerCase();
+  const list = nums.vendors.filter((v) => (showMode === "all" || (showMode === "selected" ? picks.has(v.code) : v.overdue_lines > 0))
+    && (!q || [v.code, v.name, ...v.numbers].join(" ").toLowerCase().includes(q)));
+  const shown = list.slice(0, numsLimit);
+  $("nBody").innerHTML = shown.length ? shown.map((v) => `<tr class="${picks.has(v.code) ? "on" : ""}">
+      <td class="pick"><input type="checkbox" data-follow="${esc(v.code)}" ${picks.has(v.code) ? "checked" : ""} aria-label="Follow up ${esc(v.name)}"></td>
+      <td class="vend"><div class="cell-main" title="${esc(v.name)}">${esc(v.name)}</div>
+        <div class="cell-sub">${esc(v.code)}${v.in_phone_master ? "" : " · not in Phone_Master yet"}</div></td>
+      <td class="r num">${v.overdue_lines ? n(v.overdue_lines) : `<span class="muted">0</span>`}</td>
+      ${v.numbers.map((x, i) => `<td class="num-cell">${x ? `<div class="cell-main num">${esc(x)}</div>`
+        : `<div class="cell-sub" title="Blank in Phone_Master">${esc(blankText(v, i))}</div>`}</td>`).join("")}
+      <td class="r"><button data-edit-vendor="${esc(v.code)}" aria-label="Edit numbers of ${esc(v.name)}">Edit</button></td></tr>`).join("")
+    : `<tr><td colspan="7" class="empty"><b>${showMode === "selected" && !q ? "No vendors ticked yet" : "No vendors match"}</b>${
+      showMode === "selected" && !q ? "Show <b>With overdue lines</b> or <b>All</b>, search for a vendor and tick it." : "Try a different search, or show all vendors."}</td></tr>`;
+  $("nRange").textContent = list.length ? `${n(shown.length)} of ${n(list.length)} vendors` : "";
+  $("nMore").hidden = list.length <= shown.length;
+  renderSelBar();
+}
+$("nQ").addEventListener("input", () => { numsLimit = 50; renderNumbers(); });
+$("nMore").onclick = () => { numsLimit = Infinity; renderNumbers(); };
+$("nAdd").onclick = () => openNumbers("");
+$("nUpload").onclick = openBulk;
+$("toVendors").onclick = () => $("vendorsCard").scrollIntoView({ behavior: "smooth" });
+$("nBody").addEventListener("change", (e) => {
+  const c = e.target.dataset.follow;
+  if (c === undefined) return;
+  if (e.target.checked) picks.add(c); else picks.delete(c);
+  e.target.closest("tr").classList.toggle("on", e.target.checked);
+  renderSelBar();
+});
+$("vendorsCard").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-show], [data-scope]");
+  if (!b || !nums) return;
+  if (b.dataset.show) { showMode = b.dataset.show; numsLimit = 50; renderNumbers(); }
+  else if (b.dataset.scope !== nums.scope) saveSelection(b.dataset.scope);
+});
+$("selSave").onclick = () => saveSelection(nums.scope);
+$("selUndo").onclick = () => { picks = savedSel(); renderNumbers(); };
+
+async function saveSelection(scope) {
+  const { add, remove } = selDiff();
+  const where = nums.pilot_mode ? "Pilot mode is on: messages go to the pilot number." : "Real WhatsApp messages go to the vendors from the next run.";
+  let confirmWord = null;
+  if (env === "prod" && scope === "all") {
+    if (prompt(`Follow up EVERY production vendor with overdue lines?\n${where}\n\nType ALL to continue:`) !== "ALL") return;
+    confirmWord = "ALL";
+  } else if (env === "prod" && !confirm(`Production: the follow-up will run only for the ${picks.size} ticked vendor(s).`
+      + (add.length ? `\nAdding: ${add.join(", ")}` : "") + (remove.length ? `\nRemoving: ${remove.join(", ")}` : "") + `\n${where}\n\nSave?`)) return;
+  $("selSave").disabled = true;
+  try {
+    await api("/vendor-selection", { method: "PUT", body: JSON.stringify({ scope, codes: [...picks], confirm: confirmWord }) });
+    flash(scope === "all" ? "Saved: every vendor is followed up" : `Saved: ${picks.size} vendor${picks.size === 1 ? "" : "s"} followed up`);
+    wantNums = true; load();  // On hold on the overdue list changes too
+  } catch (e) {
+    alert("Not saved: " + e.message);
+  } finally {
+    $("selSave").disabled = false;
+  }
+}
+
+// ---------- CSV download / bulk upload ----------
+function saveCsv(name, rows) {
+  const csv = rows.map((r) => r.map((c) => `"${String(c ?? "").replace(/"/g, '""')}"`).join(",")).join("\r\n");
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob(["﻿" + csv], { type: "text/csv" }));
+  a.download = name;
+  a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+$("nDownload").onclick = () => {
+  if (!nums) return;
+  const text = (s) => (s ? `="${s}"` : "");  // keeps Excel from turning codes / numbers into 9.19E+11
+  saveCsv(`vendors-${env}-${new Date().toISOString().slice(0, 10)}.csv`, [
+    ["Vendor Code", "Vendor Name", "Follow up", "Scenario 1", "Scenario 2", "Scenario 3", "Overdue lines"],
+    ...nums.vendors.map((v) => [text(v.code), v.name, picks.has(v.code) ? "Yes" : "No", ...v.numbers.map(text), v.overdue_lines]),
+  ]);
+};
+// CSV, semicolon CSV, or tab-separated (pasted from Excel / Google Sheets)
+function parseTable(text) {
+  text = text.replace(/^﻿/, "");
+  const head = text.split(/\r?\n/, 1)[0];
+  const delim = head.includes("\t") ? "\t" : head.split(";").length > head.split(",").length ? ";" : ",";
+  const rows = [];
+  let row = [], cell = "", quoted = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (quoted) {
+      if (c !== '"') cell += c;
+      else if (text[i + 1] === '"') { cell += '"'; i++; }
+      else quoted = false;
+    } else if (c === '"' && cell === "") quoted = true;
+    else if (c === delim) { row.push(cell); cell = ""; }
+    else if (c === "\n" || c === "\r") {
+      if (c === "\r" && text[i + 1] === "\n") i++;
+      row.push(cell); rows.push(row); row = []; cell = "";
+    } else cell += c;
+  }
+  if (cell !== "" || row.length) { row.push(cell); rows.push(row); }
+  return rows.map((r) => r.map((x) => x.trim().replace(/^="(.*)"$/, "$1"))).filter((r) => r.some((x) => x));
+}
+function toBulkRows(table) {
+  if (table.length < 2) throw new Error("Put the header row first, then one row per vendor.");
+  const h = table[0].map((x) => x.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim());
+  const code = h.findIndex((x) => x === "vendor code" || x === "code"), name = h.indexOf("vendor name");
+  const follow = h.findIndex((x) => x.startsWith("follow"));
+  const sc = [1, 2, 3].map((k) => h.findIndex((x) => new RegExp(`^scenario ${k}( |$)`).test(x)));
+  if (code < 0) throw new Error("The header row needs a 'Vendor Code' column.");
+  if (follow < 0 && sc.every((j) => j < 0)) throw new Error("The header row needs a 'Follow up' column or 'Scenario 1/2/3' columns.");
+  return table.slice(1).map((r, i) => {
+    const f = follow >= 0 ? (r[follow] || "").toLowerCase() : "";
+    if (f && !/^(y|yes|true|1|n|no|false|0)$/.test(f)) throw new Error(`Row ${i + 2}: Follow up must be Yes or No (not “${r[follow]}”).`);
+    return { line: i + 2, code: r[code] || "", name: name >= 0 ? (r[name] || null) : null,
+      numbers: sc.map((j) => (j >= 0 ? (r[j] ?? "") : null)), follow: f ? /^(y|yes|true|1)$/.test(f) : null };
+  });
+}
+function openBulk() {
+  if ($("drawer").hidden) lastFocus = document.activeElement;
+  $("dKicker").textContent = "Vendors to follow up";
+  $("dTitle").textContent = "Bulk upload";
+  $("dBody").innerHTML = `<div class="form">
+    <p style="font-size:13.5px">Click <b>Download CSV</b>, change the file in Excel, then upload it here (Excel: <i>Save As → CSV</i>),
+      or copy the rows from Excel – with the header row – and paste them below.</p>
+    <ul class="hint" style="margin:0;padding-left:18px;display:grid;gap:4px">
+      <li><b>Vendor Code</b> – required.</li>
+      <li><b>Follow up</b> – Yes or No. Blank keeps it as it is.</li>
+      <li><b>Scenario 1 / 2 / 3</b> – the WhatsApp numbers. An empty cell uses Master's number; several numbers: separate with commas.</li>
+      <li><b>Vendor Name</b> – optional. Leave out a column to keep it as it is; other columns are ignored.</li>
+    </ul>
+    <label>CSV file <input type="file" id="bFile" accept=".csv,.tsv,.txt,text/csv" style="height:auto;padding:8px"></label>
+    <label>…or paste from Excel <textarea id="bText" spellcheck="false" placeholder="Vendor Code&#9;Follow up&#9;Scenario 1&#10;400186&#9;Yes&#9;9876543210"></textarea></label>
+    <div class="banner err" id="bErr" role="alert" hidden><span class="grow" id="bErrText"></span></div>
+    <div class="summary" id="bSum" role="status" hidden></div>
+    <div class="row"><button class="primary" id="bCheck">Check</button><button class="primary" id="bApply" hidden>Apply changes</button><button id="bCancel">Cancel</button></div>
+    <p class="hint">Every row is checked first. If any row is wrong nothing is saved.
+      ${env === "prod" ? "Numbers are saved to the Phone_Master tab of the Google Sheet." : "Test data: saved to the test database only."}</p>
+  </div>`;
+  const reset = () => { $("bApply").hidden = true; $("bSum").hidden = true; $("bErr").hidden = true; };
+  $("bFile").onchange = async (e) => { const f = e.target.files[0]; if (!f) return; $("bText").value = await f.text(); reset(); runBulk(false); };
+  $("bText").oninput = reset;
+  $("bCheck").onclick = () => runBulk(false);
+  $("bApply").onclick = () => runBulk(true);
+  $("bCancel").onclick = closeDrawer;
+  $("scrim").hidden = $("drawer").hidden = false;
+  document.body.style.overflow = "hidden";
+  $("bFile").focus();
+}
+async function runBulk(apply) {
+  const fail = (msg) => { $("bErrText").textContent = msg; $("bErr").hidden = false; $("bSum").hidden = true; $("bApply").hidden = true; };
+  $("bErr").hidden = true;
+  let rows;
+  try { rows = toBulkRows(parseTable($("bText").value)); } catch (e) { return fail(e.message); }
+  if (apply && env === "prod" && !confirm("Apply these changes to PRODUCTION? The next follow-up run uses them.")) return;
+  $("bCheck").disabled = $("bApply").disabled = true;
+  try {
+    const r = await api("/vendor-numbers/bulk", { method: "POST", body: JSON.stringify({ rows, apply }) });
+    const changes = r.numbers_updated + r.numbers_added + r.selected_added.length + r.selected_removed.length;
+    const parts = [
+      r.numbers_updated && `Numbers change for ${n(r.numbers_updated)} vendor${r.numbers_updated === 1 ? "" : "s"}`,
+      r.numbers_added && `${n(r.numbers_added)} vendor${r.numbers_added === 1 ? "" : "s"} added to Phone_Master`,
+      r.selected_added.length && `Follow up from now on: ${r.selected_added.join(", ")}`,
+      r.selected_removed.length && `No longer followed up: ${r.selected_removed.join(", ")}`,
+    ].filter(Boolean);
+    if (apply) {
+      closeDrawer();
+      flash("Bulk upload saved: " + (parts.join(" · ") || "nothing changed"));
+      wantNums = true; load();
+      return;
+    }
+    $("bSum").innerHTML = `<b>${n(rows.length)} row${rows.length === 1 ? "" : "s"} checked – no problems.</b>`
+      + (parts.length ? parts.map((p) => `<span>${esc(p)}</span>`).join("") : "<span>Nothing would change.</span>")
+      + (r.unchanged ? `<span class="muted">${n(r.unchanged)} unchanged</span>` : "");
+    $("bSum").hidden = false;
+    $("bApply").hidden = !changes;
+  } catch (e) {
+    fail(e.message);
+  } finally {
+    $("bCheck").disabled = $("bApply").disabled = false;
+  }
+}
+
+async function openNumbers(vcode) {
+  if (!nums) await loadNumbers();
+  if (!nums) return;
+  let v = vcode ? nums.vendors.find((x) => x.code === vcode) : null;
+  if (vcode && !v) v = { code: vcode, name: vcode, in_phone_master: false, overdue_lines: 0, selected: false, numbers: ["", "", ""], fallback: ["", "", ""] };
+  if ($("drawer").hidden) lastFocus = document.activeElement;
+  $("dKicker").textContent = v ? `Vendor ${v.code} · scenario numbers` : "Vendor scenario numbers";
+  $("dTitle").textContent = v ? v.name : "Add a vendor";
+  const missing = nums.vendors.filter((x) => !x.in_phone_master);
+  $("dBody").innerHTML = `<form id="nForm" class="form" novalidate>
+    ${v ? "" : `<label>Vendor code
+        <input id="nCode" list="nCodes" autocomplete="off" required>
+        <datalist id="nCodes">${missing.map((x) => `<option value="${esc(x.code)}">${esc(x.name)}</option>`).join("")}</datalist></label>
+      <label>Vendor name <input id="nName" autocomplete="off"><span class="hint">Leave blank to take it from Master.</span></label>`}
+    ${[0, 1, 2].map((i) => `<label>Scenario ${i + 1} <small>${SCENARIO_WHO[i]}</small>
+        <input id="nS${i}" inputmode="tel" autocomplete="off" value="${esc(v ? v.numbers[i] : "")}"
+          placeholder="${esc(v ? "Blank · " + blankText(v, i) : "e.g. 9876543210")}"></label>`).join("")}
+    <p class="hint">Several numbers in one scenario: separate them with commas. Leave a number blank to use the vendor's numbers
+      from Master (Scenario 3 then uses the Scenario 2 number).</p>
+    <div class="banner err" id="nErr" role="alert" hidden><span class="grow" id="nErrText"></span></div>
+    <div class="row"><button type="submit" class="primary" id="nSave">Save numbers</button><button type="button" id="nCancel">Cancel</button></div>
+    <p class="hint">${env === "prod" ? "Saved to the Phone_Master tab of the Google Sheet. The next follow-up run uses the new numbers."
+      : "Test data: saved to the test database only."}</p>
+  </form>`;
+  $("nCancel").onclick = closeDrawer;
+  $("nForm").onsubmit = (e) => { e.preventDefault(); saveNumbers(v); };
+  $("scrim").hidden = $("drawer").hidden = false;
+  document.body.style.overflow = "hidden";
+  (v ? $("nS0") : $("nCode")).focus();
+}
+async function saveNumbers(v) {
+  const vcode = v ? v.code : $("nCode").value.trim();
+  const fail = (msg) => { $("nErrText").textContent = msg; $("nErr").hidden = false; };
+  if (!vcode) return fail("Enter the vendor code.");
+  $("nErr").hidden = true;
+  $("nSave").disabled = true; $("nSave").textContent = "Saving…";
+  try {
+    const saved = await api("/vendor-numbers/" + encodeURIComponent(vcode), { method: "PUT", body: JSON.stringify({
+      name: v ? null : ($("nName").value.trim() || null),
+      numbers: [0, 1, 2].map((i) => $("nS" + i).value.trim()),
+    }) });
+    const i = nums.vendors.findIndex((x) => x.code === saved.code);
+    if (i >= 0) nums.vendors[i] = saved; else nums.vendors.unshift(saved);
+    renderNumbers();
+    closeDrawer();
+    flash(`Saved ${saved.name} (${saved.code})`);
+  } catch (err) {
+    fail(err.message);
+    $("nSave").disabled = false; $("nSave").textContent = "Save numbers";
+  }
+}
+
 // ---------- CSV of every matching line, in the current sort ----------
 $("csv").onclick = () => {
   if (!data) return;
-  const label = (s) => ({ done: (s.simulated ? "Simulated " : "Sent ") + fmtDate(s.at), due: "Due now", scheduled: "Scheduled " + fmtDate(s.at, true), on_hold: "On hold" }[s.state] || "Not yet");
+  const label = (s) => ({ done: (s.simulated ? "Simulated " : "Sent ") + fmtDate(s.at), due: "Due now", queued: "Confirmed – after previous",
+    on_hold: "On hold", upcoming: s.at ? "From " + checkDate(s.at) : "Not yet" }[s.state] || "");
   const head = ["PO", "Item", "Line", "PO date", "Vendor code", "Vendor", "Buyer", "Material", "Description", "Pending qty", "UOM",
-    "Due date", "Days late", "Stage", "Scenario 1 - Vendor reminder", "Scenario 2 - Vendor management", "Scenario 3 - Buyer call", "Next step"];
+    "Due date", "Days late", "Overdue streak", "Confirmed scenario", "Scenario 1 - Vendor reminder", "Scenario 2 - Vendor management", "Scenario 3 - Buyer call", "Next step"];
   const rows = sorted(filtered()).map((l) => [l.p.po, l.item, l.sched, l.p.po_date, l.p.vendor_code, l.p.vendor_name, buyerOf(l.p),
-    l.material, l.desc, l.pending, l.uom, l.due, l.od, l.stage_name, ...l.scenarios.map(label), l.next.text]);
-  const csv = [head, ...rows].map((r) => r.map((c) => `"${String(c ?? "").replace(/"/g, '""')}"`).join(",")).join("\r\n");
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(new Blob(["﻿" + csv], { type: "text/csv" }));
-  a.download = `overdue-po-${env}-${new Date().toISOString().slice(0, 10)}.csv`;
-  a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    l.material, l.desc, l.pending, l.uom, l.due, l.od, l.streak, l.stage_name, ...l.scenarios.map(label), l.next.text]);
+  saveCsv(`overdue-po-${env}-${new Date().toISOString().slice(0, 10)}.csv`, [head, ...rows]);
 };
 
-setInterval(() => { if (data) $("asof").textContent = (data.synced_at ? `PO data as of ${fmtDate(data.synced_at, true)} · ` : "") + `Updated ${ago(data.now)}`; }, 30000);
+setInterval(() => { if (data) $("asof").textContent = asof(); }, 30000);
 skeleton();
 load();
 </script>

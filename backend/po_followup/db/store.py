@@ -38,6 +38,8 @@ STATE_TABLES = {
 }
 # Alert_Log is only read for today's dedupe keys; reading two days covers the IST date boundary
 ALERT_LOG_READ_DAYS = 2
+# Daily overdue checks kept per environment (test checks every few minutes, so it keeps fewer)
+KEEP_CHECKS = {"prod": 120, "test": 30}
 
 
 def column_name(header: str) -> str:
@@ -138,6 +140,21 @@ def ensure_followup_schema(conn: psycopg.Connection) -> None:
                 summary JSONB,
                 report JSONB,
                 error TEXT)""")
+        # One row per overdue check (one per check period), and the lines that were overdue in it
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS followup.overdue_checks (
+                period_start TIMESTAMPTZ PRIMARY KEY,
+                checked_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                master_rows INT NOT NULL,
+                overdue_lines INT NOT NULL)""")
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS followup.overdue_snapshot (
+                period_start TIMESTAMPTZ NOT NULL REFERENCES followup.overdue_checks ON DELETE CASCADE,
+                line_key TEXT NOT NULL,
+                vendor_code TEXT NOT NULL,
+                od_days NUMERIC,
+                PRIMARY KEY (period_start, line_key))""")
+        conn.execute("CREATE INDEX IF NOT EXISTS overdue_snapshot_vendor ON followup.overdue_snapshot (vendor_code)")
 
 
 @contextmanager
@@ -226,8 +243,77 @@ class PgStore:
                 cur.execute(stmt, [_text(r[h]) for h in headers])
 
 
+    # ----- daily overdue checks (domain/overdue.py) -----
+
+    def record_check(self, period_start, lines: dict[str, dict], master_rows: int) -> None:
+        """Store which lines are overdue in this check period. Running again in the same period replaces it,
+        so the latest check of the day wins. Old checks beyond KEEP_CHECKS are dropped."""
+        with connect(self.env) as conn, conn.transaction():
+            conn.execute("DELETE FROM followup.overdue_checks WHERE period_start = %s", (period_start,))
+            conn.execute("INSERT INTO followup.overdue_checks (period_start, master_rows, overdue_lines) VALUES (%s, %s, %s)",
+                         (period_start, master_rows, len(lines)))
+            with conn.cursor() as cur, cur.copy(
+                    "COPY followup.overdue_snapshot (period_start, line_key, vendor_code, od_days) FROM STDIN") as copy:
+                for key, line in lines.items():
+                    copy.write_row((period_start, key, line["vendor_code"], line["od"]))
+            conn.execute("DELETE FROM followup.overdue_checks WHERE period_start NOT IN (SELECT period_start FROM "
+                         "followup.overdue_checks ORDER BY period_start DESC LIMIT %s)", (KEEP_CHECKS[self.env],))
+
+    def recent_checks(self, upto, limit: int = 7) -> list[tuple]:
+        """[(period start, {overdue line keys})] of the last `limit` checks at or before `upto`, newest first."""
+        with connect(self.env) as conn:
+            starts = [r["period_start"] for r in conn.execute(
+                "SELECT period_start FROM followup.overdue_checks WHERE period_start <= %s "
+                "ORDER BY period_start DESC LIMIT %s", (upto, limit)).fetchall()]
+            keys: dict = {p: set() for p in starts}
+            if starts:
+                for r in conn.execute("SELECT period_start, line_key FROM followup.overdue_snapshot "
+                                      "WHERE period_start = ANY(%s)", (starts,)):
+                    keys[r["period_start"]].add(r["line_key"])
+        return [(p, keys[p]) for p in starts]
+
+
 def _text(v):
     return None if v is None or v == "" else str(v)
+
+
+# ---------- mirrored tabs edited from the dashboard (Phone_Master) ----------
+
+def source_headers(env: str, title: str) -> list[str]:
+    """Original sheet headers of a mirrored tab (Master / Phone_Master), in sheet order; [] if not there yet."""
+    table = SOURCE_TABLES[title]
+    with connect(env) as conn:
+        if not table_exists(conn, SHEETS_SCHEMA, table):
+            return []
+        return [h for _, h in mirrored_columns(conn, table)]
+
+
+def upsert_source_rows(env: str, title: str, rows: list[dict], key: str) -> None:
+    """Write rows of a mirrored tab, matched on their `key` header: update the given columns, or add the row
+    at the end. All or nothing. In production the Google Sheet is the source: write it there first; the next
+    sheet sync replaces this copy with what the sheet holds."""
+    table = SOURCE_TABLES[title]
+    with connect(env) as conn, conn.transaction():
+        if not table_exists(conn, SHEETS_SCHEMA, table):
+            raise ValueError(f"The {env} database has no {title} yet "
+                             f"({'run the sheet sync' if env == 'prod' else 'copy production data into test'})")
+        cols: dict[str, str] = {}
+        for c, h in mirrored_columns(conn, table):
+            cols.setdefault(h, c)
+        unknown = {h for r in rows for h in r} - set(cols)
+        if unknown:
+            raise ValueError(f"{title} has no column(s) {sorted(unknown)}")
+        ident = sql.Identifier(SHEETS_SCHEMA, table)
+        for row in rows:
+            names = [cols[h] for h in row]
+            values = [_text(v) for v in row.values()]
+            updated = conn.execute(sql.SQL("UPDATE {} SET {} WHERE trim({}) = %s").format(
+                ident, sql.SQL(", ").join(sql.SQL("{} = %s").format(sql.Identifier(c)) for c in names),
+                sql.Identifier(cols[key])), [*values, str(row[key]).strip()]).rowcount
+            if not updated:
+                conn.execute(sql.SQL("INSERT INTO {} (sheet_row, {}) VALUES ((SELECT coalesce(max(sheet_row), 1) + 1 FROM {}), {})").format(
+                    ident, sql.SQL(", ").join(sql.Identifier(c) for c in names), ident,
+                    sql.SQL(", ").join(sql.Placeholder() * len(names))), values)
 
 
 # ---------- environment maintenance ----------
@@ -292,7 +378,7 @@ def clear_state(env: str) -> None:
         ensure_followup_schema(conn)
         conn.execute(sql.SQL("TRUNCATE {}").format(sql.SQL(", ").join(
             [sql.Identifier(FOLLOWUP_SCHEMA, t) for t, _ in STATE_TABLES.values()]
-            + [sql.Identifier(FOLLOWUP_SCHEMA, "runs")])))
+            + [sql.Identifier(FOLLOWUP_SCHEMA, t) for t in ("runs", "overdue_snapshot", "overdue_checks")])))
 
 
 def import_sheet_state(env: str = "prod") -> dict:
@@ -407,6 +493,9 @@ def reset_vendor(env: str, vendor_code: str) -> dict:
             deleted[title] = conn.execute(sql.SQL("DELETE FROM {} WHERE {} LIKE %s").format(
                 sql.Identifier(FOLLOWUP_SCHEMA, table), sql.Identifier(column_name(header))),
                 (pattern.format(_like_literal(vendor_code)),)).rowcount
+        # its overdue history too, so its streak (and Scenario 1) starts again from the next check
+        deleted["overdue_snapshot"] = conn.execute("DELETE FROM followup.overdue_snapshot WHERE vendor_code = %s",
+                                                   (vendor_code,)).rowcount
     return deleted
 
 

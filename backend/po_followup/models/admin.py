@@ -13,7 +13,7 @@ class SettingsUpdate(BaseModel):
     """Any subset of the environment's settings; detailed checks are in services.followup.validate_settings."""
     model_config = ConfigDict(extra="forbid")
 
-    intervals_minutes: list[float] | None = None
+    check_period_minutes: float | None = None
     auto_enabled: bool | None = None
     auto_mode: Literal["dry", "live"] | None = None
     schedule_type: Literal["daily", "interval"] | None = None
@@ -22,6 +22,7 @@ class SettingsUpdate(BaseModel):
     pilot_mode: bool | None = None
     pilot_mobile: str | None = None
     pilot_vendor_codes: str | None = None
+    vendor_scope: Literal["selected", "all"] | None = None
     scm_hod_mobile: str | None = None
     max_lines_per_message: int | None = None
     refresh_from_sheet: bool | None = None
