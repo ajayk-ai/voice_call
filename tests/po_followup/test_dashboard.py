@@ -121,3 +121,18 @@ def test_page_and_access(monkeypatch, ready):
     assert client.get("/dashboard/api/staging", headers={"X-Access-Code": "biz"}).status_code == 422
     # the business code does not open the admin API
     assert client.get("/admin/api/session", headers={"X-Admin-Code": "biz"}).status_code == 401
+
+
+def test_refresh_with_nothing_new_answers_304(monkeypatch, ready):
+    monkeypatch.setenv("DASHBOARD_PASSWORD", "biz")
+    stamp = iter(["2026-10-20T08:30:00+05:30", "2026-10-20T08:32:00+05:30", "2026-10-20T08:34:00+05:30"])
+    report = {"env": "prod", "synced_at": None, **dashboard.build([], [], [], [], SETTINGS, NOW)}
+    monkeypatch.setattr(dashboard, "overview", lambda env: {**report, "now": next(stamp)})
+    first = client.get("/dashboard/api/prod", headers={"X-Access-Code": "biz"})
+    tag = first.headers["ETag"]
+    # only `now` changed: same tag, empty 304
+    again = client.get("/dashboard/api/prod", headers={"X-Access-Code": "biz", "If-None-Match": tag})
+    assert again.status_code == 304 and again.content == b"" and again.headers["ETag"] == tag
+    # an old tag gets the full report
+    stale = client.get("/dashboard/api/prod", headers={"X-Access-Code": "biz", "If-None-Match": '"old"'})
+    assert stale.status_code == 200 and stale.json()["env"] == "prod"

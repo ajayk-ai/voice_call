@@ -29,8 +29,10 @@ class Settings:
     # Overdue lines are checked once per period (1440 = one IST day); each check in a row a line is still
     # overdue confirms the next scenario (domain/overdue.py)
     check_period_minutes: float = 1440
-    # Scenario 3: the voice agent also rings the Scenario 3 number (pilot: pilot_mobile)
+    # Scenario 3: the voice agent also rings the Scenario 3 number (pilot: pilot_call_mobile, else pilot_mobile)
     agent_calls: bool = True
+    # Pilot: the number the Scenario 3 agent call rings; blank = pilot_mobile (WhatsApp messages still go to pilot_mobile)
+    pilot_call_mobile: str = ""
     # Day 3: a Google Meet invite is created; in pilot mode it only goes to pilot_email
     meet_invites: bool = True
     pilot_email: str = ""
@@ -63,6 +65,7 @@ class Settings:
             run_at=os.getenv("FOLLOWUP_RUN_AT", "08:30"),
             check_period_minutes=float(os.getenv("FOLLOWUP_CHECK_PERIOD_MINUTES", "1440")),
             agent_calls=env_bool("FOLLOWUP_AGENT_CALLS", True),
+            pilot_call_mobile=os.getenv("FOLLOWUP_PILOT_CALL_MOBILE", "").strip(),
             meet_invites=env_bool("FOLLOWUP_MEET_INVITES", True),
             pilot_email=os.getenv("FOLLOWUP_PILOT_EMAIL", "").strip(),
             vendor_scope="all" if os.getenv("FOLLOWUP_VENDOR_SCOPE", "selected").strip().lower() == "all" else "selected",

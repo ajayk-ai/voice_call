@@ -221,7 +221,7 @@ async def vendor_trace(env: Env, code: str = PathParam(max_length=200)):
 @router.post("/test/vendor-test", status_code=202, summary="Start a one-vendor escalation test (test data only)")
 async def start_vendor_test(body: VendorTest):
     run_id = await call(service.start_vendor_test, body.vendor_code.strip(), body.mobile.strip(), body.minutes,
-                        body.mode, body.auto)
+                        body.mode, body.auto, body.call_mobile.strip())
     return {"ok": True, "run_id": run_id, "scheduler": scheduler_running()}
 
 

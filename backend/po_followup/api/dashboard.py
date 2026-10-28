@@ -11,6 +11,7 @@ The report itself is built in services.dashboard; its shape is models.dashboard.
 Vendors are in services.vendor_numbers.
 """
 
+import hashlib
 import os
 import secrets
 
@@ -51,11 +52,22 @@ async def page():
     return HTMLResponse(PAGE.read_text(encoding="utf-8"))
 
 
-@router.get("/{env}", response_model=DashboardData, summary="Overdue PO lines and their Scenario 1 / 2 / 3 status")
-async def data(env: Env):
+def etag(body: str, now: str) -> str:
+    """Fingerprint of the report without its `now` stamp, so a refresh with nothing new answers 304."""
+    return '"' + hashlib.blake2b(body.replace(now, "", 1).encode(), digest_size=16).hexdigest() + '"'
+
+
+@router.get("/{env}", response_model=DashboardData, summary="Overdue PO lines and their Scenario 1 / 2 / 3 status",
+            responses={304: {"description": "Not modified since the ETag in If-None-Match"}})
+async def data(env: Env, if_none_match: str | None = Header(None)):
     # Validate + serialise with pydantic directly: FastAPI's generic encoder is ~10x slower on ~2 MB of lines
-    body = DashboardData.model_validate(await admin.call(report.overview, env)).model_dump_json()
-    return Response(body, media_type="application/json")
+    model = DashboardData.model_validate(await admin.call(report.overview, env))
+    body = model.model_dump_json()
+    tag = etag(body, model.now)
+    headers = {"ETag": tag, "Cache-Control": "no-cache"}
+    if if_none_match == tag:  # the page already shows this: skip ~2 MB of download, parse and re-render
+        return Response(status_code=304, headers=headers)
+    return Response(body, media_type="application/json", headers=headers)
 
 
 @router.get("/{env}/vendor-numbers", response_model=VendorNumbersList, summary="Every vendor's Scenario 1 / 2 / 3 numbers")

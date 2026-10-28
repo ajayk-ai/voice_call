@@ -293,6 +293,15 @@ def test_day2_agent_calls_scenario3_number_in_pilot():
     assert call_log["Status"] == "CALL_PLACED" and "call-1" in call_log["UltraMsg Response"]
 
 
+def test_day2_agent_call_rings_the_pilot_call_number_while_whatsapp_goes_to_the_pilot_mobile():
+    sheet = FakeSheet({"Master": [master_row("1")], "Line_Tracker": [tracker_row("1/10/1", 1)]}, overdue_days=2)
+    sender, caller = FakeSender(), FakeCaller()
+    run_daily(replace(SETTINGS, pilot_mode=True, pilot_call_mobile="9123456789"), sheet, sender, now=NOW,
+              sleep=lambda _: None, caller=caller)
+    assert caller.called == ["919123456789"]
+    assert {m for m, _ in sender.sent} == {"917200081289"}
+
+
 def test_day2_failed_agent_call_is_logged_and_whatsapp_still_goes():
     sheet = FakeSheet({"Master": [master_row("1")], "Line_Tracker": [tracker_row("1/10/1", 1)]}, overdue_days=2)
     sender = FakeSender()

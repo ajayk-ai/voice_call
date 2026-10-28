@@ -11,7 +11,7 @@
     color-scheme: light;
     --page: #f4f6fb; --surface: #ffffff; --surface-2: #f8fafc; --hover: #f1f5fb;
     --ink: #0f172a; --ink-2: #334155; --ink-3: #64748b; --hair: #e4e8f0; --hair-2: #eef1f6;
-    --accent: #2a78d6; --accent-ink: #1c5cab; --accent-soft: #e8f1fc; --on-accent: #fff;
+    --accent: #2570cf; --accent-ink: #1c5cab; --accent-soft: #e8f1fc; --on-accent: #fff;
     /* stage pipeline: one ordinal blue ramp (validated light->dark) */
     --stage-0: #86b6ef; --stage-1: #5598e7; --stage-2: #2a78d6; --stage-3: #1c5cab; --stage-4: #104281;
     /* status: reserved, always shown with an icon + label */
@@ -151,6 +151,7 @@
   .field > span { font-size: 12.5px; color: var(--ink-3); font-weight: 600; }
   #fVendor { width: 220px; } #fBuyer { width: 160px; } #fNext { width: 170px; }
   .seg-ctl { display: inline-flex; border: 1px solid var(--hair); border-radius: var(--r-sm); overflow: hidden; height: 36px; }
+  .seg-ctl button:focus-visible { outline: 2px solid currentColor; outline-offset: -4px; }  /* overflow:hidden clips an outer ring */
   .seg-ctl button { border: 0; border-radius: 0; height: 100%; font-weight: 600; color: var(--ink-2); }
   .seg-ctl button + button { border-left: 1px solid var(--hair); }
   .seg-ctl button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent-ink); }
@@ -172,7 +173,7 @@
   th:first-child, td:first-child { padding-left: 24px; } th:last-child, td:last-child { padding-right: 24px; }
   thead th { background: var(--surface-2); border-bottom: 1px solid var(--hair); font-size: 11.5px; font-weight: 600; color: var(--ink-3);
     text-transform: uppercase; letter-spacing: .06em; white-space: nowrap; padding-top: 10px; padding-bottom: 10px; }
-  thead th small { display: block; font-size: 11.5px; text-transform: none; letter-spacing: 0; font-weight: 500; color: var(--ink-3); opacity: .85; }
+  thead th small { display: block; font-size: 11.5px; text-transform: none; letter-spacing: 0; font-weight: 500; color: var(--ink-3); }
   th.r, td.r { text-align: right; }
   th .sortbtn { all: unset; cursor: pointer; display: inline-flex; gap: 6px; align-items: center; border-radius: 4px; }
   th .sortbtn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
@@ -342,11 +343,19 @@
   .check { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--ink-2); cursor: pointer; }
   #nTable td.num-cell { min-width: 150px; }
   #nTable td.vend { max-width: 240px; }
-  .saved { color: var(--good); font-size: 13px; font-weight: 600; }
+  .saved { color: var(--good-ink); font-size: 13px; font-weight: 600; }
   .form { display: grid; gap: 16px; }
   .form label { display: grid; gap: 6px; font-weight: 600; font-size: 13px; }
   .form label small { font-weight: 500; color: var(--ink-3); }
   .form .hint { font-weight: 400; font-size: 12.5px; color: var(--ink-3); }
+  .bulk-wrap { overflow-x: auto; border: 1px solid var(--hair); border-radius: var(--r-sm); margin-bottom: 8px; }
+  .bulk-ref { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+  .bulk-ref th, .bulk-ref td { text-align: left; vertical-align: top; padding: 6px 10px; border-bottom: 1px solid var(--hair-2); }
+  .bulk-ref th { background: var(--surface-2); color: var(--ink-2); font-weight: 600; white-space: nowrap; }
+  .bulk-ref tr:last-child td { border-bottom: none; }
+  .bulk-ref code { font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--surface-2); padding: 0 4px; border-radius: 4px; }
+  .bulk-example td { white-space: nowrap; font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .bulk-example td:empty::after { content: "(blank)"; color: var(--ink-3); font-style: italic; }
   .form .row { display: flex; gap: 8px; flex-wrap: wrap; }
   textarea { font: 13px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; padding: 8px 10px; border: 1px solid var(--hair); border-radius: var(--r-sm);
     background: var(--surface); color: var(--ink); min-height: 140px; resize: vertical; width: 100%; }
@@ -471,14 +480,14 @@
       <div class="active" id="active" hidden></div>
     </div>
 
-    <div class="tablewrap" id="tablewrap">
+    <div class="tablewrap" id="tablewrap" tabindex="-1">
       <table id="table">
         <caption class="sr">Overdue PO lines with the status of Scenario 1, 2 and 3</caption>
         <thead id="thead"></thead>
       </table>
     </div>
     <div class="tfoot">
-      <span id="range" class="num"></span>
+      <span id="range" class="num" aria-live="polite"></span>
       <label class="field"><span>Rows</span>
         <select id="fSize"><option>25</option><option>50</option><option>100</option><option>200</option></select>
       </label>
@@ -597,6 +606,8 @@ const DEFAULTS = { q: "", vendor: "", buyer: "", stage: "", next: "", age: "", s
 
 let data = null, lines = [], state = { ...DEFAULTS }, density = "comfortable", collapsed = new Set(), code = "", timer = null, loading = false, lastFocus = null;
 let nums = null, numsLimit = 50, wantNums = true;  // vendor scenario numbers (Phone_Master)
+let dataEnv = null, dataTag = null, missedWhileHidden = false;  // ETag of what is shown; refresh skipped in a hidden tab
+let reloadAfter = false, numsSeq = 0, savingSel = false;  // load again when the current one ends; latest vendor list; save in flight
 try {
   code = sessionStorage.getItem("dashboard_code") || sessionStorage.getItem("admin_code") || sessionStorage.getItem("access_code") || "";
   const saved = JSON.parse(localStorage.getItem("dash_prefs") || "{}");
@@ -608,6 +619,11 @@ try {
 (function readUrl() {
   const u = new URLSearchParams(location.search);
   for (const k of Object.keys(DEFAULTS)) if (u.has(k)) state[k] = typeof DEFAULTS[k] === "number" ? (+u.get(k) || DEFAULTS[k]) : u.get(k);
+  // A hand-edited or old link must not break rendering: anything outside the allowed values falls back to the default
+  const allowed = { stage: ["", "0", "1", "2", "3"], age: ["", ...AGES.map((a) => a.key)], next: ["", "due", "upcoming", "on_hold", "meeting"],
+    view: ["po", "lines"], dir: ["asc", "desc"], size: [25, 50, 100, 200] };
+  for (const [k, ok] of Object.entries(allowed)) if (!ok.includes(state[k])) state[k] = DEFAULTS[k];
+  if (state.page < 1) state.page = 1;
 })();
 $("envBadge").hidden = env !== "test";
 
@@ -679,14 +695,24 @@ function lateCell(od) {
 // ---------- data ----------
 async function load() {
   if (loading) return;
+  // Nobody is looking: refresh once the tab is visible again instead of every 2 minutes in the background
+  if (document.hidden && data) { missedWhileHidden = true; clearTimeout(timer); return; }
   loading = true; clearTimeout(timer);
   $("refresh").querySelector("svg").classList.add("spin");
   try {
-    const res = await fetch("/dashboard/api/" + env, { headers: { "X-Access-Code": code } });
+    // Same env and data already shown: the server answers 304 and nothing is downloaded, parsed or redrawn
+    const etag = data && dataEnv === env ? dataTag : null;
+    const res = await fetch("/dashboard/api/" + env, { headers: { "X-Access-Code": code, ...(etag ? { "If-None-Match": etag } : {}) } });
+    if (res.status === 304) {
+      data.now = new Date().toISOString();
+      $("asof").textContent = asof(); $("errBanner").hidden = true;
+      if (wantNums) { wantNums = false; loadNumbers(); }
+      return;
+    }
     const body = await res.json().catch(() => ({}));
     if (res.status === 401 || res.status === 403) { showGate(res.status, body.error); return; }
     if (!res.ok) throw new Error(body.error || res.statusText);
-    data = body;
+    data = body; dataEnv = env; dataTag = res.headers.get("ETag");
     lines = data.pos.flatMap((p) => p.lines.map((l) => {
       const x = { ...l, p, next: null };
       x.next = nextStep(x);
@@ -704,6 +730,7 @@ async function load() {
     loading = false;
     $("refresh").querySelector("svg").classList.remove("spin");
     timer = setTimeout(load, REFRESH_MS);
+    if (reloadAfter) { reloadAfter = false; load(); }
   }
 }
 function showGate(status, message) {
@@ -718,7 +745,7 @@ function showGate(status, message) {
 $("gateForm").onsubmit = (e) => {
   e.preventDefault();
   if (!$("gateCodeWrap").hidden) { code = $("gateCode").value; try { sessionStorage.setItem("dashboard_code", code); } catch (err) {} }
-  load();
+  if (loading) reloadAfter = true; else load();  // a load already running would otherwise swallow the new code
 };
 $("refresh").onclick = () => { wantNums = true; load(); };
 $("errRetry").onclick = load;
@@ -850,8 +877,8 @@ function renderHead() {
     const on = state.sort === c.key;
     const aria = on ? (state.dir === "asc" ? "ascending" : "descending") : "none";
     return `<th class="${c.r ? "r" : ""}" aria-sort="${aria}" scope="col"><button class="sortbtn" data-sort="${c.key}" data-first="${c.first || "asc"}">
-      ${c.r ? `<span class="arrow">${on && state.dir === "asc" ? "▲" : "▼"}</span>` : ""}<span>${esc(c.label)}${c.sub ? `<small>${esc(c.sub)}</small>` : ""}</span>
-      ${c.r ? "" : `<span class="arrow">${on && state.dir === "asc" ? "▲" : "▼"}</span>`}</button></th>`;
+      ${c.r ? `<span class="arrow" aria-hidden="true">${on && state.dir === "asc" ? "▲" : "▼"}</span>` : ""}<span>${esc(c.label)}${c.sub ? `<small>${esc(c.sub)}</small>` : ""}</span>
+      ${c.r ? "" : `<span class="arrow" aria-hidden="true">${on && state.dir === "asc" ? "▲" : "▼"}</span>`}</button></th>`;
   }).join("") + "</tr>";
 }
 function lineRow(l) {
@@ -951,11 +978,20 @@ function writeUrl() {
   history.replaceState(null, "", location.pathname + (u.toString() ? "?" + u : ""));
   try { localStorage.setItem("dash_prefs", JSON.stringify({ view: state.view, size: state.size, density })); } catch (e) {}
 }
-function renderAll() { renderTop(); renderTabs(); renderControls(); renderTable(); writeUrl(); }
+// Re-rendering replaces the focused button / row: put keyboard focus back on its replacement afterwards
+const FOCUS_KEYS = ["sort", "tab", "po", "stage", "age", "view", "edit-vendor"];
+function keepFocus(render) {
+  const a = document.activeElement, key = a && FOCUS_KEYS.find((k) => a.hasAttribute?.("data-" + k));
+  render();
+  if (!key || a.isConnected) return;
+  const again = document.querySelector(`[data-${key}="${CSS.escape(a.getAttribute("data-" + key))}"]`);
+  if (again) again.focus({ preventScroll: true });
+}
+function renderAll() { keepFocus(() => { renderTop(); renderTabs(); renderControls(); renderTable(); writeUrl(); }); }
 function update(patch, keepPage = false) {
   Object.assign(state, patch);
   if (!keepPage) state.page = 1;
-  renderTabs(); renderControls(); renderTable(); writeUrl();
+  keepFocus(() => { renderTabs(); renderControls(); renderTable(); writeUrl(); });
   // stage and age buttons live in the top section
   document.querySelectorAll(".stage").forEach((b) => b.setAttribute("aria-pressed", state.stage === b.dataset.stage));
   document.querySelectorAll("[data-age]").forEach((b) => b.setAttribute("aria-pressed", state.age === b.dataset.age));
@@ -1071,13 +1107,20 @@ function openDrawer(key) {
 function closeDrawer() {
   $("scrim").hidden = $("drawer").hidden = true;
   document.body.style.overflow = "";
-  lastFocus?.focus?.();
+  // The opener may have been re-rendered meanwhile (refresh, save): focus its replacement, else the table
+  let back = lastFocus;
+  if (back && !back.isConnected) {
+    const key = FOCUS_KEYS.find((k) => back.hasAttribute?.("data-" + k));
+    back = key && document.querySelector(`[data-${key}="${CSS.escape(back.getAttribute("data-" + key))}"]`);
+  }
+  (back || $("tablewrap"))?.focus?.({ preventScroll: true });
 }
 $("dClose").onclick = closeDrawer;
 $("scrim").onclick = closeDrawer;
 $("drawer").addEventListener("keydown", (e) => {  // keep Tab inside the panel
   if (e.key !== "Tab") return;
-  const f = [...$("drawer").querySelectorAll("button, input, [href], [tabindex]")].filter((x) => !x.disabled);
+  const f = [...$("drawer").querySelectorAll("button, input, select, textarea, [href], [tabindex]")]
+    .filter((x) => !x.disabled && x.offsetParent !== null);  // skip hidden controls (e.g. Apply before Check)
   if (!f.length) return;
   if (e.shiftKey && document.activeElement === f[0]) { e.preventDefault(); f[f.length - 1].focus(); }
   else if (!e.shiftKey && document.activeElement === f[f.length - 1]) { e.preventDefault(); f[0].focus(); }
@@ -1103,13 +1146,22 @@ function flash(msg) {
   clearTimeout(flash.t); flash.t = setTimeout(() => { $("nSaved").textContent = ""; }, 8000);
 }
 async function loadNumbers() {
+  const seq = ++numsSeq;
+  let fresh;
   try {
-    nums = await api("/vendor-numbers");
+    fresh = await api("/vendor-numbers");
   } catch (e) {
-    $("nBody").innerHTML = `<tr><td colspan="7" class="empty"><b>Could not load vendors</b>${esc(e.message)}</td></tr>`;
+    if (seq === numsSeq) $("nBody").innerHTML = `<tr><td colspan="7" class="empty"><b>Could not load vendors</b>${esc(e.message)}</td></tr>`;
     return;
   }
-  picks = savedSel();
+  if (seq !== numsSeq) return;  // an older request answered late: a newer list is on its way
+  const unsaved = nums ? selDiff() : { add: [], remove: [] };
+  nums = fresh;
+  // Keep ticks the user has not saved yet; otherwise show the saved selection
+  if (unsaved.add.length || unsaved.remove.length) {
+    picks = savedSel();
+    unsaved.add.forEach((c) => picks.add(c)); unsaved.remove.forEach((c) => picks.delete(c));
+  } else picks = savedSel();
   if (showMode === null) showMode = picks.size ? "selected" : "overdue";
   $("numNote").textContent = "Tick the vendors the follow-up runs for, and set who gets the WhatsApp at each scenario. "
     + (env === "prod" ? "Numbers are saved to the Phone_Master tab of the Google Sheet." : "Test data: saved to the test database only.");
@@ -1183,10 +1235,15 @@ $("vendorsCard").addEventListener("click", (e) => {
   if (b.dataset.show) { showMode = b.dataset.show; numsLimit = 50; renderNumbers(); }
   else if (b.dataset.scope !== nums.scope) saveSelection(b.dataset.scope);
 });
-$("selSave").onclick = () => saveSelection(nums.scope);
+$("selSave").onclick = () => { if (nums) saveSelection(nums.scope); };
 $("selUndo").onclick = () => { picks = savedSel(); renderNumbers(); };
 
 async function saveSelection(scope) {
+  if (!nums || savingSel) return;  // a double click must not send two prompts / two saves
+  savingSel = true;
+  try { await saveSelectionOnce(scope); } finally { savingSel = false; }
+}
+async function saveSelectionOnce(scope) {
   const { add, remove } = selDiff();
   const where = nums.pilot_mode ? "Pilot mode is on: messages go to the pilot number." : "Real WhatsApp messages go to the vendors from the next run.";
   let confirmWord = null;
@@ -1199,7 +1256,8 @@ async function saveSelection(scope) {
   try {
     await api("/vendor-selection", { method: "PUT", body: JSON.stringify({ scope, codes: [...picks], confirm: confirmWord }) });
     flash(scope === "all" ? "Saved: every vendor is followed up" : `Saved: ${picks.size} vendor${picks.size === 1 ? "" : "s"} followed up`);
-    wantNums = true; load();  // On hold on the overdue list changes too
+    // On hold on the overdue list changes too; the vendor list reloads right away even if a refresh is running
+    loadNumbers(); if (loading) reloadAfter = true; else load();
   } catch (e) {
     alert("Not saved: " + e.message);
   } finally {
@@ -1208,8 +1266,11 @@ async function saveSelection(scope) {
 }
 
 // ---------- CSV download / bulk upload ----------
+// Sheet text like "=HYPERLINK(...)" or "-5 mm bolt" would run as a formula in Excel: prefix ' so it stays text.
+// Our own ="400186" wrappers (which keep Excel from mangling codes and numbers) are left alone.
+const csvSafe = (s) => (/^[=+\-@\t\r]/.test(s) && !/^="[^"]*"$/.test(s) ? "'" + s : s);
 function saveCsv(name, rows) {
-  const csv = rows.map((r) => r.map((c) => `"${String(c ?? "").replace(/"/g, '""')}"`).join(",")).join("\r\n");
+  const csv = rows.map((r) => r.map((c) => `"${csvSafe(String(c ?? "")).replace(/"/g, '""')}"`).join(",")).join("\r\n");
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob(["﻿" + csv], { type: "text/csv" }));
   a.download = name;
@@ -1266,14 +1327,42 @@ function openBulk() {
   $("dKicker").textContent = "Vendors to follow up";
   $("dTitle").textContent = "Bulk upload";
   $("dBody").innerHTML = `<div class="form">
-    <p style="font-size:13.5px">Click <b>Download CSV</b>, change the file in Excel, then upload it here (Excel: <i>Save As → CSV</i>),
-      or copy the rows from Excel – with the header row – and paste them below.</p>
-    <ul class="hint" style="margin:0;padding-left:18px;display:grid;gap:4px">
-      <li><b>Vendor Code</b> – required.</li>
-      <li><b>Follow up</b> – Yes or No. Blank keeps it as it is.</li>
-      <li><b>Scenario 1 / 2 / 3</b> – the WhatsApp numbers. An empty cell uses Master's number; several numbers: separate with commas.</li>
-      <li><b>Vendor Name</b> – optional. Leave out a column to keep it as it is; other columns are ignored.</li>
-    </ul>
+    <p style="font-size:13.5px">Click <b>Download CSV</b> (every vendor) or <b>Download template</b> (an example), change the file in Excel,
+      then upload it here (Excel: <i>Save As → CSV</i>), or copy the rows from Excel – with the header row – and paste them below.</p>
+    <div>
+      <h3>Columns (first row of the file)</h3>
+      <div class="bulk-wrap"><table class="bulk-ref">
+        <tr><th>Header</th><th>Required?</th><th>What to put in each row</th></tr>
+        <tr><td><code>Vendor Code</code></td><td>Yes</td><td>The vendor's code from Master, e.g. <code>400186</code></td></tr>
+        <tr><td><code>Vendor Name</code></td><td>No</td><td>Saved as the vendor's name in Phone_Master · blank = keep the current name</td></tr>
+        <tr><td><code>Follow up</code></td><td>No*</td><td><code>Yes</code> = follow this vendor up · <code>No</code> = On hold · blank = keep as it is</td></tr>
+        <tr><td><code>Scenario 1</code></td><td>No*</td><td>WhatsApp number(s) for the vendor planner + coordinator</td></tr>
+        <tr><td><code>Scenario 2</code></td><td>No*</td><td>WhatsApp number(s) for vendor management</td></tr>
+        <tr><td><code>Scenario 3</code></td><td>No*</td><td>Number(s) for Scenario 3 (blank = Scenario 2's number)</td></tr>
+      </table></div>
+      <p class="hint">* At least one of <b>Follow up</b> or <b>Scenario 1/2/3</b> is needed. Headers are not case-sensitive.
+        A column you leave out keeps every vendor's value as it is. Other columns (e.g. <i>Overdue lines</i>) are ignored.</p>
+    </div>
+    <div>
+      <h3>How to fill the numbers</h3>
+      <ul class="hint" style="margin:0;padding-left:18px;display:grid;gap:4px">
+        <li>10 digits (<code>9876543210</code>) or with country code (<code>919876543210</code>, <code>+91 98765 43210</code>).</li>
+        <li>Several numbers in one cell: separate with <code>,</code> <code>;</code> or <code>/</code> – e.g. <code>9876543210, 9123456789</code>.</li>
+        <li>Empty cell = clear the number, so Master's number is used again.</li>
+      </ul>
+    </div>
+    <div>
+      <h3>Example</h3>
+      <div class="bulk-wrap"><table class="bulk-ref bulk-example">
+        <tr><th>Vendor Code</th><th>Vendor Name</th><th>Follow up</th><th>Scenario 1</th><th>Scenario 2</th><th>Scenario 3</th></tr>
+        <tr><td>400186</td><td>Super springs private Limited</td><td>Yes</td><td>9876543210</td><td>9123456789</td><td>9123456789</td></tr>
+        <tr><td>100791</td><td>ABC Forgings</td><td>Yes</td><td>9876500001, 9876500002</td><td></td><td></td></tr>
+        <tr><td>802515</td><td></td><td>No</td><td></td><td></td><td></td></tr>
+      </table></div>
+      <p class="hint">Row 1: followed up, all three numbers set. Row 2: followed up, two Scenario 1 numbers, Scenarios 2 and 3 use Master's
+        numbers. Row 3: put On hold, numbers cleared.</p>
+      <div class="row"><button id="bTemplate">Download template</button></div>
+    </div>
     <label>CSV file <input type="file" id="bFile" accept=".csv,.tsv,.txt,text/csv" style="height:auto;padding:8px"></label>
     <label>…or paste from Excel <textarea id="bText" spellcheck="false" placeholder="Vendor Code&#9;Follow up&#9;Scenario 1&#10;400186&#9;Yes&#9;9876543210"></textarea></label>
     <div class="banner err" id="bErr" role="alert" hidden><span class="grow" id="bErrText"></span></div>
@@ -1285,6 +1374,12 @@ function openBulk() {
   const reset = () => { $("bApply").hidden = true; $("bSum").hidden = true; $("bErr").hidden = true; };
   $("bFile").onchange = async (e) => { const f = e.target.files[0]; if (!f) return; $("bText").value = await f.text(); reset(); runBulk(false); };
   $("bText").oninput = reset;
+  $("bTemplate").onclick = () => saveCsv("vendors-template.csv", [
+    ["Vendor Code", "Vendor Name", "Follow up", "Scenario 1", "Scenario 2", "Scenario 3"],
+    ['="400186"', "Super springs private Limited", "Yes", '="9876543210"', '="9123456789"', '="9123456789"'],
+    ['="100791"', "ABC Forgings", "Yes", "9876500001, 9876500002", "", ""],
+    ['="802515"', "", "No", "", "", ""],
+  ]);
   $("bCheck").onclick = () => runBulk(false);
   $("bApply").onclick = () => runBulk(true);
   $("bCancel").onclick = closeDrawer;
@@ -1391,6 +1486,9 @@ $("csv").onclick = () => {
 };
 
 setInterval(() => { if (data) $("asof").textContent = asof(); }, 30000);
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden && missedWhileHidden) { missedWhileHidden = false; load(); }
+});
 skeleton();
 load();
 </script>

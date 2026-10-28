@@ -11,12 +11,13 @@
     --accent: #2563eb; --accent-soft: #e3eef8; --accent-fg: #fff; --ok: #2f7d4f; --ok-soft: #e4f3ea;
     --warn: #a15c07; --warn-soft: #fbf0e0; --bad: #c2412d; --bad-soft: #fbe7e3;
     --prod: #c2412d; --test: #2f7d4f;
+    --on-fill: #fff;  /* text on --envc / --ok / --bad fills */
   }
   @media (prefers-color-scheme: dark) {
     :root { --bg: #14181c; --card: #1c2227; --fg: #e6eaee; --muted: #9aa5b0; --line: #2e363e; --soft: #252c33;
       --accent: #4a9be0; --accent-soft: #1b2f42; --accent-fg: #0d1216; --ok: #6cc893; --ok-soft: #1a3326;
       --warn: #e0a24f; --warn-soft: #3a2a14; --bad: #e0664f; --bad-soft: #3d1f19;
-      --prod: #e0664f; --test: #6cc893; color-scheme: dark; }
+      --prod: #e0664f; --test: #6cc893; --on-fill: #0d1216; color-scheme: dark; }
   }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.5 var(--font-ui, system-ui); }
@@ -41,13 +42,15 @@
   .small { font-size: .85rem; }
   .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
   .seg button { border: 0; border-radius: 0; background: transparent; color: var(--fg); padding: 7px 14px; }
-  .seg button[aria-pressed="true"] { background: var(--envc); color: #fff; }
+  .seg button[aria-pressed="true"] { background: var(--envc); color: var(--on-fill); }
   #tabs.seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-fg); }
   button { font: 600 .9rem/1.2 inherit; padding: 9px 14px; border: 1px solid transparent; border-radius: 8px; cursor: pointer;
     background: var(--accent); color: var(--accent-fg); }
   button.ghost { background: transparent; color: var(--fg); border-color: var(--line); }
-  button.danger { background: var(--bad); color: #fff; }
+  button.danger { background: var(--bad); color: var(--on-fill); }
   button:disabled { opacity: .5; cursor: default; }
+  button.link { background: none; border: 0; padding: 0; color: var(--accent); font-weight: 600; text-decoration: underline; text-underline-offset: 2px; }
+  .seg button:focus-visible { outline: 2px solid currentColor; outline-offset: -4px; }  /* .seg clips an outer ring */
   button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
   .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
   .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; }
@@ -64,7 +67,7 @@
   .pill.DRY_RUN { color: var(--accent); background: var(--accent-soft); }
   .pill.failed, .pill.FAILED, .pill.INVALID_MOBILE { color: var(--bad); background: var(--bad-soft); }
   .pill.running, .pill.warn { color: var(--warn); background: var(--warn-soft); }
-  .envtag { color: #fff; background: var(--envc); padding: 3px 10px; border-radius: 6px; font-weight: 700; font-size: .8rem; letter-spacing: .04em; }
+  .envtag { color: var(--on-fill); background: var(--envc); padding: 3px 10px; border-radius: 6px; font-weight: 700; font-size: .8rem; letter-spacing: .04em; }
   .tablewrap { overflow: auto; max-height: 420px; border: 1px solid var(--line); border-radius: 8px; }
   table { border-collapse: collapse; width: 100%; font-size: .82rem; }
   th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; white-space: nowrap; }
@@ -75,7 +78,10 @@
   .callout.ok { background: var(--ok-soft); border-left-color: var(--ok); }
   .callout.warn { background: var(--warn-soft); border-left-color: var(--warn); }
   #toast { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); background: var(--fg); color: var(--bg);
-    padding: 10px 16px; border-radius: 8px; display: none; max-width: calc(100% - 32px); z-index: 20; }
+    padding: 10px 16px; border-radius: 8px; max-width: calc(100% - 32px); z-index: 20;
+    opacity: 0; visibility: hidden; transition-property: opacity, visibility, transform; transition-duration: 150ms; }
+  /* kept in the DOM (not display:none) so screen readers announce every message */
+  #toast.show { opacity: 1; visibility: visible; transition-duration: 200ms; }
   .dirty { color: var(--warn); font-weight: 600; }
   dialog { border: 1px solid var(--line); border-radius: 10px; background: var(--card); color: var(--fg); width: min(1000px, calc(100% - 32px)); }
   dialog::backdrop { background: rgb(0 0 0 / .4); }
@@ -95,7 +101,7 @@
   .step .stitle { font-weight: 600; }
   .step .when { margin-top: 6px; font-size: .85rem; font-weight: 600; }
   .step.done { border-color: var(--ok); background: var(--ok-soft); }
-  .step.done .dot { background: var(--ok); color: #fff; }
+  .step.done .dot { background: var(--ok); color: var(--on-fill); }
   .step.done .when { color: var(--ok); }
   .step.next { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
   .step.next .dot { background: var(--accent); color: var(--accent-fg); }
@@ -246,10 +252,12 @@
         <ol class="steps-howto small">
           <li>Pick a vendor that has pending lines in the test data.</li>
           <li>Enter <b>your</b> WhatsApp number. Every message goes to you (pilot mode), starting with a line that says who would really get it.</li>
+          <li>Optionally enter the pilot <b>call number</b>: the voice agent rings it at Scenario 3 (blank = your WhatsApp number).</li>
           <li>Choose the wait between scenarios (1 minute instead of 1 day) and press <b>Start test</b>.</li>
         </ol>
-        <p class="small muted">Scenario 1 is sent right away. Then, one wait apart: Scenario 2, Scenario 3 (buyer call task) and the Day 3 meeting,
-          so the full flow finishes in about 4 waits. Starting resets this vendor's test history and changes the test settings (pilot mode on, this vendor only, your number, the wait).</p>
+        <p class="small muted">Scenario 1 is sent right away. Then, one wait apart: Scenario 2, Scenario 3 (buyer WhatsApp + a real voice agent call
+          to the call number, when Messages is real WhatsApp) and the Day 3 meeting, so the full flow finishes in about 4 waits. Starting resets this
+          vendor's test history and changes the test settings (pilot mode on, this vendor only, your numbers, the wait).</p>
         <div class="grid2">
           <label>Vendor
             <input id="tVendor" list="tVendors" placeholder="Type a name or code" autocomplete="off">
@@ -257,6 +265,9 @@
           </label>
           <label>Your WhatsApp number
             <input id="tMobile" inputmode="tel" placeholder="9876543210" autocomplete="tel">
+          </label>
+          <label>Scenario 3 call number <small class="muted">(pilot; blank = WhatsApp number)</small>
+            <input id="tCallMobile" inputmode="tel" placeholder="9876543210">
           </label>
           <label>Wait between scenarios (minutes)
             <input id="tMinutes" type="number" min="1" max="1440" step="1" value="1">
@@ -267,12 +278,12 @@
         </div>
         <label class="switch"><input type="checkbox" id="tAuto" checked> Run the next scenarios automatically</label>
         <p class="callout warn small" id="tWarn" hidden></p>
-        <div class="row"><button id="tStart">Start test</button><span id="tMsg" class="small"></span></div>
+        <div class="row"><button id="tStart">Start test</button><span id="tMsg" class="small" aria-live="polite"></span></div>
         <hr style="border: 0; border-top: 1px solid var(--line); margin: 16px 0 12px">
         <h3>Or call the agent now</h3>
-        <p class="small muted">Rings the number above right away with the voice agent reading this vendor's overdue PO lines,
+        <p class="small muted">Rings your WhatsApp number above right away with the voice agent reading this vendor's overdue PO lines,
           without Scenarios 1 and 2. Nothing is logged or changed in the test data.</p>
-        <div class="row"><button id="tCall" class="ghost">📞 Call now</button><span id="tCallMsg" class="small"></span></div>
+        <div class="row"><button id="tCall" class="ghost">📞 Call now</button><span id="tCallMsg" class="small" aria-live="polite"></span></div>
       </section>
 
       <section class="card" id="testActive" hidden>
@@ -320,6 +331,7 @@
         <label class="switch"><input type="checkbox" id="pilot_mode"> Pilot mode (only the selected vendors; every message goes to the pilot number)</label>
         <div class="grid2">
           <label>Pilot mobile<input id="pilot_mobile" inputmode="tel" placeholder="7200081289"></label>
+          <label>Pilot call number <small class="muted">(Scenario 3 agent call; blank = pilot mobile)</small><input id="pilot_call_mobile" inputmode="tel"></label>
           <label>Selected vendor codes <small class="muted">(also chosen on the dashboard)</small><input id="pilot_vendor_codes" placeholder="400186,100791"></label>
           <label>SCM HOD mobile<input id="scm_hod_mobile" inputmode="tel"></label>
           <label>PO lines per message<input type="number" id="max_lines_per_message" min="1" max="50"></label>
@@ -328,7 +340,7 @@
       </section>
     </div>
     <section class="card">
-      <div class="row"><button id="save">Save settings</button><button id="reset" class="ghost">Discard changes</button><span id="dirty"></span></div>
+      <div class="row"><button id="save">Save settings</button><button id="reset" class="ghost">Discard changes</button><span id="dirty" aria-live="polite"></span></div>
     </section>
   </section>
 
@@ -358,8 +370,8 @@
   </section>
 </main>
 
-<dialog id="dlg"><div class="row"><h2 id="dlgtitle" style="margin-right:auto"></h2><button class="ghost" onclick="dlg.close()">Close</button></div><div id="dlgbody"></div></dialog>
-<div id="toast" role="status"></div>
+<dialog id="dlg" aria-labelledby="dlgtitle"><div class="row"><h2 id="dlgtitle" style="margin-right:auto"></h2><button class="ghost" onclick="dlg.close()">Close</button></div><div id="dlgbody"></div></dialog>
+<div id="toast" role="status" aria-live="polite" aria-atomic="true"></div>
 
 <script>
 const $ = (id) => document.getElementById(id);
@@ -378,7 +390,10 @@ try { env = localStorage.getItem("env") || "test"; view = localStorage.getItem("
 try { code = sessionStorage.getItem("admin_code") || sessionStorage.getItem("access_code") || ""; } catch (e) {}
 
 // ---------- helpers ----------
-function toast(msg, ms = 3500) { const t = $("toast"); t.textContent = msg; t.style.display = "block"; clearTimeout(t._h); t._h = setTimeout(() => t.style.display = "none", ms); }
+function toast(msg, ms = 5000) {
+  const t = $("toast"); t.textContent = msg; t.classList.add("show"); clearTimeout(t._h);
+  t._h = setTimeout(() => t.classList.remove("show"), ms);
+}
 function esc(s) { return String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
 function fmtTime(iso, withDate = true) {
   if (!iso) return "-";
@@ -401,7 +416,10 @@ class Locked extends Error {}
 async function api(path, opts = {}) {
   const res = await fetch("/admin/api" + path, { ...opts, headers: { "Content-Type": "application/json", "X-Admin-Code": code } });
   const data = await res.json().catch(() => ({}));
-  if (res.status === 401 || res.status === 403 || res.status === 503) { showGate(res.status, data.error); throw new Locked(data.error); }
+  // 503 locks the page only when the admin itself is unavailable (/state, /session), not for one slow action
+  // such as a call while the voice server wakes up
+  const adminDown = res.status === 503 && /\/(state|session)$/.test(path);
+  if (res.status === 401 || res.status === 403 || adminDown) { showGate(res.status, data.error); throw new Locked(data.error); }
   if (!res.ok) throw new Error(data.error || res.statusText);
   return data;
 }
@@ -467,7 +485,9 @@ function setView(v) {
 // ---------- main loop ----------
 async function load(withSettings = false) {
   try {
-    const t0 = Date.now(), st = await api(`/${env}/state`);
+    const asked = env, t0 = Date.now(), st = await api(`/${env}/state`);
+    // Switched Production/Test while this was loading: the other env's answer must not fill this env's form
+    if (asked !== env) return;
     if (st.now) skew = new Date(st.now).getTime() - (t0 + Date.now()) / 2;
     $("app").hidden = false;
     render(st);
@@ -526,10 +546,11 @@ function render(st) {
   const r = st.runs[0];
   $("lastrun").innerHTML = r ? `Last run #${r.id} (${r.trigger}, ${r.mode}): <span class="pill ${r.status}">${r.status}</span> ${esc(summaryText(r))}` : "No runs yet.";
   $("runs").innerHTML = "<tr><th>#</th><th>Started</th><th>Trigger</th><th>Mode</th><th>Status</th><th>Vendor steps</th><th>Messages</th><th>By status</th><th>Cleared</th><th>Error</th></tr>" +
-    (st.runs.length ? st.runs.map((r) => `<tr class="click" data-id="${r.id}"><td>${r.id}</td><td>${fmtTime(r.started_at)}</td><td>${r.trigger}</td><td>${r.mode}</td>
+    (st.runs.length ? st.runs.map((r) => `<tr class="click" data-id="${r.id}"><td><button class="link" data-run="${r.id}" aria-label="Open run ${r.id}">#${r.id}</button></td><td>${fmtTime(r.started_at)}</td><td>${r.trigger}</td><td>${r.mode}</td>
       <td><span class="pill ${r.status}">${r.status}</span></td><td>${r.summary?.vendor_groups ?? ""}</td><td>${r.summary?.messages ?? ""}</td>
       <td>${esc(Object.entries(r.summary?.by_status || {}).map(([k, v]) => k + " " + v).join(", "))}</td><td>${r.summary?.cleared_lines ?? ""}</td>
       <td class="wrap">${esc(r.error || "")}</td></tr>`).join("") : `<tr><td colspan="10" class="muted">No runs yet.</td></tr>`);
+  // Whole row for the mouse; the #id button inside it is the keyboard way in
   document.querySelectorAll("#runs tr.click").forEach((tr) => tr.onclick = () => showRun(tr.dataset.id));
 }
 function renderHealth(st) {
@@ -575,7 +596,9 @@ async function showRun(id) {
 // ---------- vendor list ----------
 async function loadVendors(force = false) {
   if (!force && vendorsEnv === env && Date.now() - vendorsAt < 30000) return renderVendorList();
-  vendors = await api(`/${env}/vendors`); vendorsEnv = env; vendorsAt = Date.now();
+  const asked = env, list = await api(`/${env}/vendors`);
+  if (asked !== env) return;  // late answer for the env we just left
+  vendors = list; vendorsEnv = asked; vendorsAt = Date.now();
   renderVendorList();
   $("tVendors").innerHTML = vendors.filter((v) => v.pending_lines).map((v) => `<option value="${esc(v.code)}">${esc(v.name)} - ${v.pending_lines} pending line(s)</option>`).join("");
 }
@@ -602,7 +625,8 @@ $("vsearch").oninput = renderVendorList;
 // ---------- vendor trace (shared by Vendor trace and Test a vendor) ----------
 async function loadTrace(vcode, el, isTest = false) {
   try {
-    const t = await api(`/${env}/vendors/${encodeURIComponent(vcode)}`);
+    const asked = env, t = await api(`/${env}/vendors/${encodeURIComponent(vcode)}`);
+    if (asked !== env) return;
     skew = new Date(t.now).getTime() - Date.now();
     renderTrace(t, el);
     if (isTest) maybeFinishTest(t);
@@ -633,7 +657,8 @@ function renderTrace(t, el) {
   const done = t.steps.every((s) => s.state === "done");
   const only = set.pilot_mode || set.vendor_scope !== "all";
   const pilotNote = only && !t.in_pilot ? "This vendor is not selected for follow-up (dashboard): runs skip it."
-    : set.pilot_mode ? `Pilot mode: every message for this vendor actually goes to <b>${esc(set.pilot_mobile || "no pilot number set")}</b>.`
+    : set.pilot_mode ? `Pilot mode: every message for this vendor actually goes to <b>${esc(set.pilot_mobile || "no pilot number set")}</b>`
+      + `; the Scenario 3 agent call rings <b>${esc(set.pilot_call_mobile || set.pilot_mobile || "no pilot number set")}</b>.`
     : "Pilot mode is off: messages go to the real numbers below.";
   const latest = [...t.steps].reverse().find((s) => s.messages.length);
   el.innerHTML = `
@@ -714,7 +739,8 @@ function renderTest() {
   $("tMode").querySelector('[value="live"]').disabled = !state.whatsapp_ready;
   if (!state.whatsapp_ready) $("tMode").value = "dry";
   if (vt && !$("tVendor").value) {
-    $("tVendor").value = vt.vendor_code; $("tMobile").value = vt.mobile; $("tMinutes").value = vt.minutes;
+    $("tVendor").value = vt.vendor_code; $("tMobile").value = vt.mobile; $("tCallMobile").value = vt.call_mobile || "";
+    $("tMinutes").value = vt.minutes;
     if (state.whatsapp_ready || vt.mode === "dry") $("tMode").value = vt.mode;
     $("tAuto").checked = vt.auto;
   }
@@ -723,6 +749,7 @@ function renderTest() {
     $("tStatus").textContent = active ? (state.settings.auto_enabled ? "running" : "manual steps") : "stopped";
     $("tStatus").className = "pill " + (active ? "running" : "");
     $("tInfo").innerHTML = `<b>${esc(vt.vendor_name)}</b> (${esc(vt.vendor_code)}) · ${vt.mode === "live" ? "real WhatsApp" : "dry run"} to <b>${esc(vt.mobile)}</b>
+      · Scenario 3 call ${vt.mode === "live" ? "to" : "(dry run: not placed)"} <b>${esc(vt.call_mobile || vt.mobile)}</b>
       · ${fmtWait(vt.minutes)} between scenarios · started ${fmtTime(vt.started_at)}${vt.stopped_at ? " · stopped " + fmtTime(vt.stopped_at) : ""}`;
     $("tStop").hidden = !(active && state.settings.auto_enabled);
     $("tReason").textContent = vt.stop_reason || ""; $("tReason").hidden = !vt.stop_reason;
@@ -730,7 +757,8 @@ function renderTest() {
 }
 
 async function startTest(body) {
-  if (body.mode === "live" && !confirm(`Send real WhatsApp messages to ${body.mobile} for every scenario of vendor ${body.vendor_code}?`)) return;
+  if (body.mode === "live" && !confirm(`Send real WhatsApp messages to ${body.mobile} for every scenario of vendor ${body.vendor_code}, `
+    + `and ring ${body.call_mobile || body.mobile} with the voice agent at Scenario 3?`)) return;
   $("tMsg").textContent = "Starting…";
   try {
     const r = await api("/test/vendor-test", { method: "POST", body: JSON.stringify(body) });
@@ -741,7 +769,8 @@ async function startTest(body) {
   } catch (e) { $("tMsg").textContent = ""; fail(e); }
 }
 function formBody() {
-  return { vendor_code: $("tVendor").value.trim(), mobile: $("tMobile").value.trim(), minutes: Number($("tMinutes").value),
+  return { vendor_code: $("tVendor").value.trim(), mobile: $("tMobile").value.trim(), call_mobile: $("tCallMobile").value.trim(),
+           minutes: Number($("tMinutes").value),
            mode: $("tMode").value, auto: $("tAuto").checked };
 }
 $("tStart").onclick = guard(async () => {
@@ -761,7 +790,7 @@ $("tCall").onclick = guard(async () => {
     $("tCallMsg").textContent = `Ringing ${r.to}: ${r.vendor}, ${r.lines} overdue line(s). FreJun call id ${r.call_id}`;
   } catch (e) { $("tCallMsg").textContent = ""; fail(e); }
 });
-$("tAgain").onclick = guard(async () => { const vt = state.settings.vendor_test; await startTest({ vendor_code: vt.vendor_code, mobile: vt.mobile, minutes: vt.minutes, mode: vt.mode, auto: vt.auto }); });
+$("tAgain").onclick = guard(async () => { const vt = state.settings.vendor_test; await startTest({ vendor_code: vt.vendor_code, mobile: vt.mobile, call_mobile: vt.call_mobile || "", minutes: vt.minutes, mode: vt.mode, auto: vt.auto }); });
 $("tNext").onclick = guard(async () => {
   const vt = state.settings.vendor_test;
   try { const r = await api("/test/run", { method: "POST", body: JSON.stringify({ mode: vt.mode }) }); toast(`Run #${r.run_id} started. Only steps whose wait is over are sent.`); await load(); }
@@ -782,7 +811,7 @@ function fillSettings(s) {
   $("auto_enabled").checked = s.auto_enabled; $("auto_mode").value = s.auto_mode; $("schedule_type").value = s.schedule_type;
   $("daily_time").value = s.daily_time; $("every_minutes").value = s.every_minutes;
   { const [v, u] = minutesToUnit(s.check_period_minutes); $("iv0").value = v; $("iu0").value = u; }
-  for (const k of ["pilot_mobile", "pilot_vendor_codes", "scm_hod_mobile", "max_lines_per_message"]) $(k).value = s[k] ?? "";
+  for (const k of ["pilot_mobile", "pilot_call_mobile", "pilot_vendor_codes", "scm_hod_mobile", "max_lines_per_message"]) $(k).value = s[k] ?? "";
   $("pilot_mode").checked = s.pilot_mode; $("refresh_from_sheet").checked = s.refresh_from_sheet;
   showSchedule(); setDirty(false);
 }
@@ -792,6 +821,7 @@ function readSettings() {
     daily_time: $("daily_time").value, every_minutes: Number($("every_minutes").value),
     check_period_minutes: Number($("iv0").value) * UNITS.find(([u]) => u === $("iu0").value)[1],
     pilot_mode: $("pilot_mode").checked, pilot_mobile: $("pilot_mobile").value.trim(),
+    pilot_call_mobile: $("pilot_call_mobile").value.trim(),
     pilot_vendor_codes: $("pilot_vendor_codes").value.trim(), scm_hod_mobile: $("scm_hod_mobile").value.trim(),
     max_lines_per_message: Number($("max_lines_per_message").value), refresh_from_sheet: $("refresh_from_sheet").checked,
   };
@@ -828,7 +858,8 @@ document.querySelectorAll("[data-run]").forEach((b) => b.onclick = guard(async (
 
 // ---------- data ----------
 async function loadTable() {
-  const rows = await api(`/${env}/table/${table}?limit=200`);
+  const asked = env + "/" + table, rows = await api(`/${env}/table/${table}?limit=200`);
+  if (asked !== env + "/" + table) return;  // another tab or env was picked while this loaded
   if (!rows.length) { $("table").innerHTML = "<tr><td class='muted'>No rows.</td></tr>"; return; }
   const cols = Object.keys(rows[0]);
   $("table").innerHTML = "<tr>" + cols.map((c) => `<th>${esc(c)}</th>`).join("") + "</tr>" +

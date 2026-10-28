@@ -101,21 +101,21 @@
     <div class="controls">
       <button id="start">Start test call</button>
       <button id="stop" class="stop" disabled>End call</button>
-      <span id="status">Not connected</span>
+      <span id="status" role="status">Not connected</span>
       <div class="meter" title="Your mic level"><i id="level"></i></div>
     </div>
     <p class="tip">Use headphones. Without them the agent hears itself through your speakers and keeps interrupting itself.</p>
   </div>
 
   <div class="card">
-    <div id="log"><div class="sys">The transcript appears here.</div></div>
+    <div id="log" role="log" aria-label="Transcript" tabindex="0"><div class="sys">The transcript appears here.</div></div>
   </div>
   </section>
 </main>
 
 <script>
 const $ = (id) => document.getElementById(id);
-let ws, micCtx, micStream, playCtx, nextPlayTime = 0, playing = [];
+let ws, micCtx, micStream, playCtx, nextPlayTime = 0, playing = new Set();
 let current = { role: null, el: null };
 
 function setStatus(text, live) { $("status").textContent = text; $("status").className = live ? "live" : ""; }
@@ -150,32 +150,30 @@ function playChunk(buf) {
   src.buffer = audio; src.connect(playCtx.destination);
   const t = Math.max(playCtx.currentTime + 0.05, nextPlayTime);
   src.start(t); nextPlayTime = t + audio.duration;
-  playing.push(src);
-  src.onended = () => { playing = playing.filter((s) => s !== src); };
+  playing.add(src);
+  src.onended = () => playing.delete(src);
 }
 
 function stopPlayback() {
   playing.forEach((s) => { try { s.stop(); } catch (e) {} });
-  playing = []; nextPlayTime = 0;
+  playing.clear(); nextPlayTime = 0;
 }
 
 // Mic capture: 16 kHz mono, sent as PCM16 every 40 ms (small frames = the agent hears the end of speech sooner)
 const workletCode = `
 class Mic extends AudioWorkletProcessor {
-  constructor() { super(); this.buf = []; }
+  // Writes straight into a 640-sample PCM16 frame: no array growth or copies in the audio thread (avoids glitches)
+  constructor() { super(); this.pcm = new Int16Array(640); this.n = 0; this.peak = 0; }
   process(inputs) {
     const ch = inputs[0][0];
     if (ch) {
-      this.buf.push(...ch);
-      if (this.buf.length >= 640) {
-        const pcm = new Int16Array(this.buf.length);
-        let peak = 0;
-        for (let i = 0; i < this.buf.length; i++) {
-          const s = Math.max(-1, Math.min(1, this.buf[i]));
-          pcm[i] = s * 32767; peak = Math.max(peak, Math.abs(s));
+      for (let i = 0; i < ch.length; i++) {
+        const s = Math.max(-1, Math.min(1, ch[i]));
+        this.pcm[this.n++] = s * 32767; if (Math.abs(s) > this.peak) this.peak = Math.abs(s);
+        if (this.n === 640) {
+          this.port.postMessage({ pcm: this.pcm.buffer, peak: this.peak }, [this.pcm.buffer]);
+          this.pcm = new Int16Array(640); this.n = 0; this.peak = 0;
         }
-        this.port.postMessage({ pcm: pcm.buffer, peak }, [pcm.buffer]);
-        this.buf = [];
       }
     }
     return true;
@@ -194,14 +192,23 @@ async function start() {
     setStatus("Microphone blocked. Allow mic access in the browser and try again.");
     $("start").disabled = false; return;
   }
-  micCtx = new AudioContext({ sampleRate: 16000 });
-  playCtx = new AudioContext({ sampleRate: 24000 });
-  const url = URL.createObjectURL(new Blob([workletCode], { type: "application/javascript" }));
-  await micCtx.audioWorklet.addModule(url);
-  const node = new AudioWorkletNode(micCtx, "mic");
-  micCtx.createMediaStreamSource(micStream).connect(node);
+  let node;
+  try {
+    micCtx = new AudioContext({ sampleRate: 16000 });
+    playCtx = new AudioContext({ sampleRate: 24000 });
+    const url = URL.createObjectURL(new Blob([workletCode], { type: "application/javascript" }));
+    try { await micCtx.audioWorklet.addModule(url); } finally { URL.revokeObjectURL(url); }
+    node = new AudioWorkletNode(micCtx, "mic");
+    micCtx.createMediaStreamSource(micStream).connect(node);
+  } catch (e) {
+    // e.g. a browser that cannot resample the mic to 16 kHz: release the mic instead of leaving it open
+    cleanup();
+    setStatus("This browser could not start the audio (" + (e.message || e.name) + "). Try Chrome or Edge.");
+    return;
+  }
 
   setStatus("Connecting to agent…");
+  $("stop").disabled = false;  // a slow or hung connection can be cancelled
   ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/test-ws");
   ws.binaryType = "arraybuffer";
   ws.onopen = () => {
@@ -214,7 +221,7 @@ async function start() {
   ws.onmessage = (e) => {
     if (typeof e.data !== "string") { playChunk(e.data); return; }
     const m = JSON.parse(e.data);
-    if (m.type === "ready") { setStatus("Live: speak now", true); sysLine("Call connected. The agent will greet you."); $("stop").disabled = false; }
+    if (m.type === "ready") { setStatus("Live: speak now", true); sysLine("Call connected. The agent will greet you."); $("stop").disabled = false; $("stop").focus(); }
     else if (m.type === "transcript") addLine(m.role, m.text);
     else if (m.type === "turn_complete") current = { role: null, el: null };
     else if (m.type === "clear") stopPlayback();
@@ -234,11 +241,13 @@ function cleanup() {
   micCtx?.close(); playCtx?.close();
   micCtx = playCtx = micStream = null;
   $("level").style.width = "0";
+  const hadFocus = document.activeElement === $("stop");
   $("start").disabled = false; $("stop").disabled = true;
+  if (hadFocus) $("start").focus();  // a disabled button drops keyboard focus to the page
 }
 
 $("start").onclick = start;
-$("stop").onclick = () => ws?.close();
+$("stop").onclick = () => { if (ws) ws.close(); else cleanup(); };
 
 // Tabs (?tab=phone / ?tab=browser from the top links, /test opens the voice agent)
 function showTab(name) {

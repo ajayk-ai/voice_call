@@ -329,6 +329,7 @@ in PostgreSQL and override the defaults below.
 | `FOLLOWUP_RUN_AT` | `08:30` | daily run time (IST) |
 | `FOLLOWUP_CHECK_PERIOD_MINUTES` | `1440` | overdue check period (production) |
 | `FOLLOWUP_PILOT_MODE` / `FOLLOWUP_PILOT_VENDOR_CODES` / `FOLLOWUP_PILOT_MOBILE` / `FOLLOWUP_PILOT_EMAIL` | `true` / `400186` / – / – | pilot: only these vendors, every message to this number / email |
+| `FOLLOWUP_PILOT_CALL_MOBILE` | – | pilot: the Scenario 3 voice agent call rings this number (blank = pilot mobile) |
 | `FOLLOWUP_VENDOR_SCOPE` | `selected` | `selected`: only the selected vendors (initially `FOLLOWUP_PILOT_VENDOR_CODES`) are followed up; `all`: every vendor. Changed on the dashboard |
 | `FOLLOWUP_TEST_SCENARIO_MOBILE` | – | test copies get this as every Scenario 1/2/3 number |
 | `FOLLOWUP_AGENT_CALLS` / `FOLLOWUP_MEET_INVITES` | `true` / `true` | Scenario 3 voice call / meeting Google Meet |

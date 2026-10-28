@@ -210,10 +210,10 @@ class DailyRun:
     @traceable(name="agent_call", run_type="tool", process_inputs=lambda i: {
         "vendor": i["g"]["vendorLabel"], "mobile": mask_phones(i["g"].get("scenario3Raw"))})
     def _agent_call(self, g: dict) -> None:
-        """Scenario 3: the voice agent rings the Scenario 3 number (pilot: the pilot mobile)."""
+        """Scenario 3: the voice agent rings the Scenario 3 number (pilot: the pilot call number, else the pilot mobile)."""
         s = self.s
         raw = txt(g.get("scenario3Raw"))
-        mobile = normalize_mobile(raw, s.pilot_mode, s.pilot_mobile)
+        mobile = normalize_mobile(raw, s.pilot_mode, s.pilot_call_mobile or s.pilot_mobile)
         base = {"PO Number": g["poNumber"], "Vendor": g["vendorLabel"], "Recipient Role": "Vendor (Agent call, Scenario 3)",
                 "Recipient Name": g["vendorName"], "Mobile": mobile or raw or "(blank)", "Alert Type": "AGENT_CALL_DAY2",
                 "Escalation Level": "2", "Message": f"Voice agent call to {mobile or raw or '-'}"

@@ -35,6 +35,7 @@ def default_settings(env: str) -> dict:
         "every_minutes": 5 if test else 60,
         "pilot_mode": base.pilot_mode or test,
         "pilot_mobile": base.pilot_mobile,
+        "pilot_call_mobile": base.pilot_call_mobile,  # Scenario 3 agent call in pilot mode; blank = pilot_mobile
         "pilot_vendor_codes": ",".join(sorted(base.pilot_vendor_codes)),
         "vendor_scope": base.vendor_scope,  # selected / all (chosen on the dashboard)
         "scm_hod_mobile": base.scm_hod_mobile,
@@ -75,7 +76,7 @@ def validate_settings(values: dict) -> dict:
         elif k == "max_lines_per_message":
             if not (isinstance(v, int) and 1 <= v <= 50):
                 raise ValueError("Lines per message must be 1-50")
-        elif k in ("pilot_mobile", "scm_hod_mobile"):
+        elif k in ("pilot_mobile", "pilot_call_mobile", "scm_hod_mobile"):
             if not isinstance(v, str) or not re.fullmatch(r"[0-9+ ,]*", v):
                 raise ValueError(f"{k} may contain only digits, +, spaces and commas")
         elif k == "pilot_vendor_codes":
@@ -100,6 +101,7 @@ def effective_settings(env: str, mode: str) -> Settings:
         update_tracker_in_test_mode=env == "test",
         pilot_mode=s["pilot_mode"],
         pilot_mobile=s["pilot_mobile"],
+        pilot_call_mobile=s["pilot_call_mobile"],
         pilot_vendor_codes=frozenset(c.strip() for c in s["pilot_vendor_codes"].split(",") if c.strip()),
         vendor_scope=s["vendor_scope"],
         scm_hod_mobile=s["scm_hod_mobile"],
@@ -322,12 +324,12 @@ def whatsapp_ready() -> bool:
     return bool(s.ultramsg_base_url and s.ultramsg_token)
 
 
-def start_vendor_test(vendor_code: str, mobile: str, minutes: float, mode: str, auto: bool) -> int:
+def start_vendor_test(vendor_code: str, mobile: str, minutes: float, mode: str, auto: bool, call_mobile: str = "") -> int:
     """Walk one vendor through Scenario 1 -> 2 -> 3 -> meeting in the test environment, `minutes` apart.
 
-    Resets the vendor's test tracker/logs/tasks, sends everything to `mobile` (pilot mode, this vendor only),
-    runs Scenario 1 now and, with auto, lets the scheduler run every `minutes` for the next steps.
-    Returns the id of the first run."""
+    Resets the vendor's test tracker/logs/tasks, sends every WhatsApp to `mobile` (pilot mode, this vendor only),
+    rings `call_mobile` for the Scenario 3 agent call (blank = `mobile`), runs Scenario 1 now and, with auto,
+    lets the scheduler run every `minutes` for the next steps. Returns the id of the first run."""
     from backend.po_followup.domain.escalation import is_valid_mobile, normalize_mobile
     from backend.po_followup.services.trace import index_vendors
 
@@ -336,10 +338,12 @@ def start_vendor_test(vendor_code: str, mobile: str, minutes: float, mode: str, 
         raise ValueError("Mode must be dry or live")
     if not is_valid_mobile(normalize_mobile(mobile, True, mobile)):
         raise ValueError("Enter your WhatsApp number, e.g. 9876543210 or +919876543210")
+    if call_mobile and not is_valid_mobile(normalize_mobile(call_mobile, True, call_mobile)):
+        raise ValueError("Enter the Scenario 3 call number, e.g. 9876543210 or +919876543210, or leave it blank")
     if mode == "live" and not whatsapp_ready():
         raise ValueError("Live test needs ULTRAMSG_BASE_URL and ULTRAMSG_TOKEN in .env (or use a dry run)")
     values = validate_settings({
-        "pilot_mode": True, "pilot_vendor_codes": vendor_code, "pilot_mobile": mobile,
+        "pilot_mode": True, "pilot_vendor_codes": vendor_code, "pilot_mobile": mobile, "pilot_call_mobile": call_mobile,
         "check_period_minutes": minutes, "auto_enabled": False, "auto_mode": mode,
         "schedule_type": "interval", "every_minutes": max(1, minutes),
     })
@@ -351,7 +355,8 @@ def start_vendor_test(vendor_code: str, mobile: str, minutes: float, mode: str, 
             raise ValueError(f"Vendor {vendor_code} has no pending lines (OD Days > 0) in the test data")
         store.reset_vendor(env, vendor_code)
         store.save_settings(env, {**values, "vendor_test": {
-            "vendor_code": vendor_code, "vendor_name": vendor["name"], "mobile": mobile, "minutes": minutes,
+            "vendor_code": vendor_code, "vendor_name": vendor["name"], "mobile": mobile, "call_mobile": call_mobile,
+            "minutes": minutes,
             "mode": mode, "auto": auto, "started_at": datetime.now(ZONE).isoformat(), "stopped_at": None}})
     except Exception:
         _release(env, held)

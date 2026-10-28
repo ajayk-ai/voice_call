@@ -21,6 +21,7 @@ class SettingsUpdate(BaseModel):
     every_minutes: float | None = None
     pilot_mode: bool | None = None
     pilot_mobile: str | None = None
+    pilot_call_mobile: str | None = None
     pilot_vendor_codes: str | None = None
     vendor_scope: Literal["selected", "all"] | None = None
     scm_hod_mobile: str | None = None
@@ -35,9 +36,11 @@ class RunRequest(BaseModel):
 
 
 class VendorTest(BaseModel):
-    """Walk one test vendor through every scenario, `minutes` apart, with all messages going to `mobile`."""
+    """Walk one test vendor through every scenario, `minutes` apart, with all messages going to `mobile`
+    and the Scenario 3 agent call to `call_mobile` (blank = `mobile`)."""
     vendor_code: str = Field(min_length=1, max_length=40)
     mobile: str = Field(min_length=10, max_length=20)
+    call_mobile: str = Field("", max_length=20)
     minutes: float = Field(1, ge=1, le=1440)
     mode: Literal["dry", "live"] = "live"
     auto: bool = True  # run the next scenarios automatically (needs the scheduler)
