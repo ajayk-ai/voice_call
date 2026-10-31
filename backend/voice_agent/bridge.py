@@ -18,11 +18,8 @@ def new_session_id() -> str:
 
 
 def public_url(request: Request) -> str:
-    """Base URL FreJun uses to reach this server.
-
-    On Render, RENDER_EXTERNAL_URL is always the live service URL, so it wins over PUBLIC_URL
-    (a stale PUBLIC_URL pointing at a deleted service makes FreJun hang up on answer)."""
-    url = os.getenv("RENDER_EXTERNAL_URL") or os.getenv("PUBLIC_URL") or f"https://{request.headers.get('host')}"
+    """Base URL FreJun uses to reach this server (PUBLIC_URL, else the request's own host)."""
+    url = os.getenv("PUBLIC_URL") or f"https://{request.headers.get('host')}"
     return url.rstrip("/")
 
 

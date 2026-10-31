@@ -1,7 +1,7 @@
 """Vendor WhatsApp replies (n8n: '11 UltraMsg Incoming Webhook' -> '15 Store Vendor Reply').
 
 Set the UltraMsg instance webhook URL to
-    https://<your-render-app>.onrender.com/webhooks/ultramsg?secret=<ULTRAMSG_WEBHOOK_SECRET>
+    https://<your-domain>/webhooks/ultramsg?secret=<ULTRAMSG_WEBHOOK_SECRET>
 and enable webhook_message_received. Replies are stored raw in Vendor_Replies.
 The PO number is filled only when the vendor writes it explicitly - it is never guessed."""
 
@@ -10,7 +10,7 @@ import os
 import re
 import secrets
 from datetime import datetime
-from zoneinfo import ZoneInfo
+from backend.core.env import TIMEZONE
 
 from fastapi import APIRouter, Request
 from fastapi.concurrency import run_in_threadpool
@@ -37,7 +37,7 @@ def reply_record(payload: dict, now: datetime | None = None) -> dict | None:
         return None
     text = str(data.get("body") or "")
     po = extract_po_number(text)
-    now = now or datetime.now(ZoneInfo("Asia/Kolkata"))
+    now = now or datetime.now(TIMEZONE)
     return {
         "Received At": now.strftime("%Y-%m-%d %H:%M:%S"),
         "Message ID": data.get("id") or "",

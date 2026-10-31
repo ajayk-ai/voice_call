@@ -1,12 +1,12 @@
-"""Vendors on the dashboard: which ones the follow-up runs for, and their Scenario 1 / 2 / 3 numbers (Phone_Master).
+"""Vendors on the dashboard: which ones the follow-up runs for, their Scenario 1 / 2 / 3 numbers (Phone_Master) and
+their Scenario 4 e-mail ids (followup.vendor_contacts, used for the management meeting invite).
 
-Selection: the selected vendor codes and the scope (selected only / all vendors) are environment settings
-(`pilot_vendor_codes`, `vendor_scope`), read by every run (config.Settings.vendor_filter).
+Selection: the chosen vendor codes and the scope (selected only / all vendors) are settings (`vendor_codes`,
+`vendor_scope`), read by every run (config.Settings.vendor_filter).
 
-Numbers: production's Phone_Master lives in the Google Sheet, so an edit is written to the sheet first (users keep
-editing it there too) and then to the production copy, so the dashboard and the next run use it at once.
-Test: written to the test database only. A blank Scenario number means "use Master's numbers", exactly as the
-run does (domain.escalation.apply_phone_master).
+Numbers: Phone_Master lives in the Google Sheet, so an edit is written to the sheet first (users keep editing it
+there too) and then to the database copy, so the dashboard and the next run use it at once. A blank Scenario number
+means "use Master's numbers", exactly as the run does (domain.escalation.apply_phone_master).
 
 Bulk: rows from an uploaded CSV / pasted from Excel. Every row is checked first; nothing is written if any is wrong.
 """
@@ -14,7 +14,9 @@ Bulk: rows from an uploaded CSV / pasted from Excel. Every row is checked first;
 import os
 import re
 
-from backend.po_followup.domain.escalation import is_valid_mobile, normalize_mobile, norm, split_numbers, txt
+from backend.po_followup.db import store
+from backend.po_followup.domain.escalation import indian_mobile, norm, split_numbers, txt
+from backend.po_followup.services import followup as service
 from backend.po_followup.services import trace
 
 TITLE = "Phone_Master"
@@ -40,12 +42,27 @@ def find_headers(headers: list[str]) -> dict:
 
 
 def check_numbers(raw: str, n: int) -> str:
-    """One Scenario cell: blank, or one or more mobile numbers separated by , ; or /. Returns it tidied."""
-    parts = split_numbers(raw)
+    """One Scenario cell: blank, or one or more 10-digit Indian mobile numbers separated by , ; or /.
+    Returns them as 10 digits each."""
+    out = []
+    for p in split_numbers(raw):
+        m = indian_mobile(p)
+        if not m:
+            raise ValueError(f"Scenario {n}: '{p}' is not a 10-digit Indian mobile number")
+        out.append(m)
+    return ", ".join(out)
+
+
+EMAIL_RE = re.compile(r"[^@\s,;]+@[^@\s,;]+\.[A-Za-z]{2,}")
+
+
+def check_emails(raw: str) -> str:
+    """Scenario 4 cell: blank, or e-mail ids separated by , ; or whitespace. Returns them tidied, lower-cased, de-duplicated."""
+    parts = [p for p in re.split(r"[,;\s]+", raw.strip()) if p]
     for p in parts:
-        if not is_valid_mobile(normalize_mobile(p, False, "")):
-            raise ValueError(f"Scenario {n}: '{p}' is not a mobile number (10 digits, or with country code)")
-    return ", ".join(parts)
+        if not EMAIL_RE.fullmatch(p):
+            raise ValueError(f"Scenario 4: '{p}' is not an e-mail id")
+    return ", ".join(dict.fromkeys(p.lower() for p in parts))
 
 
 def _fallbacks(vendor: dict | None) -> list[str]:
@@ -56,26 +73,30 @@ def _fallbacks(vendor: dict | None) -> list[str]:
     return [c["scenario1"], c["scenario2"], c["scenario3"]]
 
 
+def _master_emails(vendor: dict | None) -> str:
+    """Buyer / buyer lead / SCM head e-mail ids that Master already gives the meeting."""
+    c = (vendor or {}).get("contacts") or {}
+    return ", ".join(dict.fromkeys(e for e in (c.get("buyerEmail"), c.get("buyerLeadEmail"), c.get("scmHeadEmail")) if e))
+
+
 def _cell(pm: dict | None, header: str | None) -> str:
     v = txt((pm or {}).get(header, "")) if header else ""
     return "" if v == "#N/A" else v
 
 
-def _load(env: str) -> dict:
+def _load() -> dict:
     """Everything the list and the saves need: headers, Phone_Master rows, Master vendors, settings."""
-    from backend.po_followup.db import store
-    from backend.po_followup.services import followup as service
-
-    headers = store.source_headers(env, TITLE)
+    headers = store.source_headers(TITLE)
     cols = find_headers(headers)
     phone: dict[str, dict] = {}
-    for p in (trace.source_records(env, TITLE) if headers else []):
+    for p in (trace.source_records(TITLE) if headers else []):
         code = _cell(p, cols.get("code"))
         if code:
             phone.setdefault(code, p)
-    settings = service.get_settings(env)
-    return {"cols": cols, "phone": phone, "settings": settings, "selected": trace._pilot_codes(settings),
-            "vendors": trace.index_vendors(trace.source_records(env, "Master"))}
+    settings = service.get_settings()
+    return {"cols": cols, "phone": phone, "settings": settings, "selected": trace.chosen_codes(settings),
+            "emails": store.vendor_emails(),
+            "vendors": trace.index_vendors(trace.source_records("Master"))}
 
 
 def _row(code: str, d: dict) -> dict:
@@ -89,21 +110,20 @@ def _row(code: str, d: dict) -> dict:
         "selected": code in d["selected"],
         "numbers": [_cell(pm, cols.get(n)) for n in (1, 2, 3)],
         "fallback": _fallbacks(v),
+        "emails": d["emails"].get(code, ""),
+        "master_emails": _master_emails(v),
     }
 
 
-def list_numbers(env: str) -> dict:
+def list_numbers() -> dict:
     """Every vendor in Phone_Master or Master; selected vendors first, then those with overdue lines."""
-    d = _load(env)
+    d = _load()
     codes = list(d["phone"]) + [c for c in d["vendors"] if c not in d["phone"]]
     rows = [_row(c, d) for c in codes]
     s = d["settings"]
     return {
-        "env": env,
-        "saves_to": "Google Sheet (Phone_Master)" if env == "prod" else "test database",
         "ready": "code" in d["cols"],
         "scope": s["vendor_scope"],
-        "pilot_mode": bool(s["pilot_mode"]),
         # selected codes that are in neither Master nor Phone_Master (typos, vendors gone from the sheet)
         "unknown_selected": sorted(d["selected"] - set(codes)),
         "vendors": sorted(rows, key=lambda r: (not r["selected"], -r["overdue_lines"], r["name"].lower(), r["code"])),
@@ -120,6 +140,7 @@ def _plan(d: dict, items: list[dict]) -> dict:
         raise ValueError(f"{TITLE} has no 'Vendor Code' column")
     errors, seen = [], set()
     writes, select_add, select_remove, unchanged = [], set(), set(), 0
+    email_writes: dict[str, str] = {}
     for it in items:
         code = txt(it.get("code"))
         where = f"Row {it['line']}" if it.get("line") else "Vendor"
@@ -131,8 +152,8 @@ def _plan(d: dict, items: list[dict]) -> dict:
             errors.append(f"{label}: this vendor is listed twice")
             continue
         seen.add(code)
-        if code not in d["phone"] and code not in d["vendors"]:
-            errors.append(f"{label}: vendor code not found in Master or Phone_Master")
+        if code not in d["phone"] and code not in d["vendors"] and not txt(it.get("name")):
+            errors.append(f"{label}: new vendor, so the vendor name is needed")
             continue
         current = _row(code, d)
 
@@ -150,6 +171,15 @@ def _plan(d: dict, items: list[dict]) -> dict:
             except ValueError as e:
                 errors.append(f"{label}: {e}")
 
+        new_emails = None
+        if it.get("emails") is not None:
+            try:
+                new_emails = check_emails(str(it["emails"]))
+            except ValueError as e:
+                errors.append(f"{label}: {e}")
+        if new_emails is not None and new_emails != current["emails"]:
+            email_writes[code] = new_emails
+
         name = txt(it.get("name"))
         row = {cols["code"]: code}
         row.update({cols[n]: new_numbers[n - 1] for n in (1, 2, 3)
@@ -166,7 +196,7 @@ def _plan(d: dict, items: list[dict]) -> dict:
             select_add.add(code)
         elif follow is False and current["selected"]:
             select_remove.add(code)
-        if len(row) == 1 and code not in select_add | select_remove:
+        if len(row) == 1 and code not in select_add | select_remove | email_writes.keys():
             unchanged += 1
 
     if errors:
@@ -175,64 +205,58 @@ def _plan(d: dict, items: list[dict]) -> dict:
         raise ValueError("Nothing was saved. " + "; ".join(errors[:MAX_ERRORS_SHOWN])
                          + (f"; and {more} more problem(s)" if more > 0 else ""))
     added = sum(1 for r in writes if r[cols["code"]] not in d["phone"])
-    return {"writes": writes, "select_add": select_add, "select_remove": select_remove,
-            "summary": {"numbers_updated": len(writes) - added, "numbers_added": added,
+    return {"writes": writes, "select_add": select_add, "select_remove": select_remove, "email_writes": email_writes,
+            "summary": {"numbers_updated": len(writes) - added, "numbers_added": added, "emails_updated": len(email_writes),
                         "selected_added": sorted(select_add), "selected_removed": sorted(select_remove),
                         "unchanged": unchanged}}
 
 
-def _apply(env: str, d: dict, plan: dict) -> None:
-    from backend.po_followup.db import store
-
+def _apply(d: dict, plan: dict) -> None:
     if plan["writes"]:
-        if env == "prod":
-            _write_sheet(plan["writes"], d["cols"]["code"])
-        store.upsert_source_rows(env, TITLE, plan["writes"], d["cols"]["code"])
+        _write_sheet(plan["writes"], d["cols"]["code"])
+        store.upsert_source_rows(TITLE, plan["writes"], d["cols"]["code"])
         trace.clear_cache()
+    if plan["email_writes"]:
+        store.save_vendor_emails(plan["email_writes"])
     if plan["select_add"] or plan["select_remove"]:
-        _save_selection(env, (d["selected"] | plan["select_add"]) - plan["select_remove"])
+        _save_selection((d["selected"] | plan["select_add"]) - plan["select_remove"])
 
 
-def save_one(env: str, code: str, name: str | None, numbers: list[str]) -> dict:
-    """Set one vendor's Scenario 1/2/3 numbers (adds the vendor to Phone_Master if it is not there yet)."""
+def save_one(code: str, name: str | None, numbers: list[str], emails: str | None = None) -> dict:
+    """Set one vendor's Scenario 1/2/3 numbers and Scenario 4 e-mail ids (adds the vendor to Phone_Master if it is
+    not there yet)."""
     code = code.strip()
-    d = _load(env)
-    _apply(env, d, _plan(d, [{"code": code, "name": name, "numbers": numbers}]))
-    return _row(code, _load(env))
+    d = _load()
+    _apply(d, _plan(d, [{"code": code, "name": name, "numbers": numbers, "emails": emails}]))
+    return _row(code, _load())
 
 
-def bulk(env: str, rows: list[dict], apply: bool) -> dict:
+def bulk(rows: list[dict], apply: bool) -> dict:
     """Numbers and/or Follow up for many vendors. apply=False only checks the rows and says what would change."""
-    d = _load(env)
+    d = _load()
     plan = _plan(d, rows)
     if apply:
-        _apply(env, d, plan)
+        _apply(d, plan)
     return {"applied": apply, **plan["summary"]}
 
 
-def set_selection(env: str, codes: list[str], scope: str, confirm: str | None) -> dict:
+def set_selection(codes: list[str], scope: str, confirm: str | None) -> dict:
     """Which vendors runs follow up: `codes` with scope 'selected', or every vendor with scope 'all'."""
-    from backend.po_followup.db import store
-    from backend.po_followup.services import followup as service
-
-    d = _load(env)
+    d = _load()
     codes_set = {c.strip() for c in codes if c.strip()}
     unknown = sorted(c for c in codes_set - d["selected"] if c not in d["phone"] and c not in d["vendors"])
     if unknown:
         raise ValueError(f"Not found in Master or Phone_Master: {', '.join(unknown[:10])}")
-    if env == "prod" and scope == "all" and d["settings"]["vendor_scope"] != "all" and confirm != "ALL":
-        raise ValueError("Following up every production vendor needs confirm = ALL")
-    store.save_settings(env, service.validate_settings({"vendor_scope": scope}))
-    _save_selection(env, codes_set)
-    s = service.get_settings(env)
-    return {"scope": s["vendor_scope"], "selected": sorted(trace._pilot_codes(s))}
+    if scope == "all" and d["settings"]["vendor_scope"] != "all" and confirm != "ALL":
+        raise ValueError("Following up every vendor needs confirm = ALL")
+    store.save_settings(service.validate_settings({"vendor_scope": scope}))
+    _save_selection(codes_set)
+    s = service.get_settings()
+    return {"scope": s["vendor_scope"], "selected": sorted(trace.chosen_codes(s))}
 
 
-def _save_selection(env: str, codes: set[str]) -> None:
-    from backend.po_followup.db import store
-    from backend.po_followup.services import followup as service
-
-    store.save_settings(env, service.validate_settings({"pilot_vendor_codes": ",".join(sorted(codes))}))
+def _save_selection(codes: set[str]) -> None:
+    store.save_settings(service.validate_settings({"vendor_codes": ",".join(sorted(codes))}))
 
 
 def _write_sheet(rows: list[dict], key: str) -> None:

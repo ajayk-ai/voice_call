@@ -118,7 +118,8 @@ def proposed_meeting_time(now: datetime) -> str:
 
 def meeting_task_row(g: dict, run_ts: str, now: datetime, s: Settings) -> dict:
     scm_head_email = g["scmHeadEmail"] or s.scm_head_email
-    emails = list(dict.fromkeys(e for e in (scm_head_email, g["buyerEmail"], g["buyerLeadEmail"]) if e))
+    vendor_emails = [e.strip() for e in str(g.get("vendorEmails") or "").split(",") if e.strip()]  # Scenario 4 ids
+    emails = list(dict.fromkeys(e for e in (scm_head_email, g["buyerEmail"], g["buyerLeadEmail"], *vendor_emails) if e))
     last_type, last_date = g["lastAlertType"] or "-", g["previousAlertDate"] or "-"
     return {
         "Meeting ID": f"{g['vendorCode']}-MEET-{g['runDate']}",
@@ -126,7 +127,8 @@ def meeting_task_row(g: dict, run_ts: str, now: datetime, s: Settings) -> dict:
         "Meeting Title": f"PO Escalation – {g['vendorName']} ({g['vendorCode']}) – {g['poCount']} POs overdue",
         "Proposed Date": proposed_meeting_time(now),
         "Participants": f"SCM Head ({scm_head_email or '-'}) | Buyer ({g['buyerEmail'] or '-'}) | "
-                        f"Buyer Lead ({g['buyerLeadEmail'] or '-'}) | Vendor Planner: {g['vendorPlannerMobileRaw'] or '-'}",
+                        f"Buyer Lead ({g['buyerLeadEmail'] or '-'}) | Vendor Planner: {g['vendorPlannerMobileRaw'] or '-'}"
+                        + (f" | Vendor ({', '.join(vendor_emails)})" if vendor_emails else ""),
         "Attendee Emails": ",".join(emails),
         "PO Number": g["poNumber"],
         "Vendor": g["vendorLabel"],

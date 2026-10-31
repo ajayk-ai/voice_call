@@ -10,3 +10,4 @@ gspread>=6.1
 google-auth>=2.32
 tzdata>=2024.1
 langsmith>=0.4
+psycopg[binary]>=3.2

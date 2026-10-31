@@ -1,7 +1,7 @@
 """What the agent says: system prompt and opening line. Edit these to change the call script.
 
 The vendor and PO lines are filled in per call (`po_prompt`); PO_FOLLOWUP_PROMPT / GREETING_TRIGGER are the
-sample used by the web page and by calls placed without vendor data."""
+sample used by calls placed without vendor data."""
 
 PROMPT_TEMPLATE = """\
 You are the Bull Machines Supply Chain (SCM) assistant, calling a vendor about overdue purchase orders.

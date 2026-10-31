@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 
 from google.auth.transport.requests import AuthorizedSession
 
+from backend.core.env import TIMEZONE
 from backend.core.google_auth import delegated_credentials
 
 SCOPES = ["https://www.googleapis.com/auth/calendar.events"]
@@ -26,8 +27,8 @@ class MeetScheduler:
         body = {
             "summary": title,
             "description": description,
-            "start": {"dateTime": start.isoformat(), "timeZone": "Asia/Kolkata"},
-            "end": {"dateTime": end.isoformat(), "timeZone": "Asia/Kolkata"},
+            "start": {"dateTime": start.isoformat(), "timeZone": TIMEZONE.key},
+            "end": {"dateTime": end.isoformat(), "timeZone": TIMEZONE.key},
             "attendees": [{"email": e} for e in attendees],
             "conferenceData": {"createRequest": {"requestId": uuid.uuid4().hex,
                                                  "conferenceSolutionKey": {"type": "hangoutsMeet"}}},

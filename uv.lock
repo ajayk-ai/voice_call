@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.14"
 
 [[package]]
@@ -1029,6 +1029,7 @@ dependencies = [
     { name = "httpx" },
     { name = "langsmith" },
     { name = "numpy" },
+    { name = "psycopg", extra = ["binary"] },
     { name = "python-dotenv" },
     { name = "teler" },
     { name = "truststore" },
@@ -1041,9 +1042,6 @@ dependencies = [
 dev = [
     { name = "pytest" },
 ]
-sync = [
-    { name = "psycopg", extra = ["binary"] },
-]
 
 [package.metadata]
 requires-dist = [
@@ -1054,7 +1052,7 @@ requires-dist = [
     { name = "httpx", specifier = ">=0.27" },
     { name = "langsmith", specifier = ">=0.4" },
     { name = "numpy", specifier = ">=2.5.3" },
-    { name = "psycopg", extras = ["binary"], marker = "extra == 'sync'", specifier = ">=3.2" },
+    { name = "psycopg", extras = ["binary"], specifier = ">=3.2" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8" },
     { name = "python-dotenv", specifier = "==1.0.1" },
     { name = "teler", specifier = ">=1.0.0" },
@@ -1063,7 +1061,7 @@ requires-dist = [
     { name = "uvicorn", extras = ["standard"], specifier = "==0.30.6" },
     { name = "websockets", specifier = ">=14.0" },
 ]
-provides-extras = ["sync", "dev"]
+provides-extras = ["dev"]
 
 [[package]]
 name = "watchfiles"

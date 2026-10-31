@@ -34,4 +34,4 @@ def test_sheet_refresh_needs_sheet_id_not_a_key_file(monkeypatch):
 
     monkeypatch.delenv("PO_SHEET_ID", raising=False)
     with pytest.raises(RuntimeError, match="PO_SHEET_ID"):
-        service.sync_sheet_to_prod()
+        service.sync_sheet()

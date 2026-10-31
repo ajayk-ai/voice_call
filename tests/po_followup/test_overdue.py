@@ -3,10 +3,10 @@
 from datetime import datetime, timedelta
 
 from backend.po_followup.domain.overdue import confirmed_level, history, overdue_now, period_start, streaks
-from backend.po_followup.services.run import ZONE
+from backend.core.env import TIMEZONE
 
-NOW = datetime(2026, 10, 15, 8, 30, tzinfo=ZONE)
-DAY = datetime(2026, 10, 15, tzinfo=ZONE)
+NOW = datetime(2026, 10, 15, 8, 30, tzinfo=TIMEZONE)
+DAY = datetime(2026, 10, 15, tzinfo=TIMEZONE)
 
 
 def day(n):

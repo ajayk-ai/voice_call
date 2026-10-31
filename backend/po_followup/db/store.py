@@ -1,33 +1,27 @@
-"""PostgreSQL storage for the follow-up workflow, one database per environment.
-
-    production: PO data mirrored from the Google Sheet by po_sync (schema `sheets`)
-                + follow-up state in schema `followup`
-    test:       a copy of production's Master / Phone_Master you can edit freely
-                + its own follow-up state, so test runs never touch production
+"""PostgreSQL storage for the follow-up: PO data mirrored from the Google Sheet by po_sync (schema `sheets`)
+and the follow-up state (schema `followup`).
 
 `PgStore` has the same read_records / append_rows / upsert_rows interface as the Google Sheet
-(`sheets.PoSheet`), so the daily run works unchanged on either.
+(`sheets.PoSheet`), so the run works unchanged on either.
 """
 
 import json
 import os
-import re
-import zlib
 from contextlib import contextmanager
 
 import psycopg
 from psycopg import sql
 from psycopg.rows import dict_row
 
+from backend.core.env import TIMEZONE, env_int
 from backend.po_sync.sync import SCHEMA as SHEETS_SCHEMA
-from backend.po_sync.sync import Tab, ensure_schema, load_state, slugify, write_tab
+from backend.po_sync.sync import slugify
 
 from backend.po_followup.domain.messages import TAB_HEADERS
 
-ENVIRONMENTS = ("prod", "test")
 FOLLOWUP_SCHEMA = "followup"
 
-# Tabs the run reads from the sheet mirror (schema `sheets`) and copies into test
+# Tabs the run reads from the sheet mirror (schema `sheets`)
 SOURCE_TABLES = {"Master": "master", "Phone_Master": "phone_master"}
 # Tabs whose state now lives in Postgres: title -> (table, unique key column or None)
 STATE_TABLES = {
@@ -38,50 +32,41 @@ STATE_TABLES = {
 }
 # Alert_Log is only read for today's dedupe keys; reading two days covers the IST date boundary
 ALERT_LOG_READ_DAYS = 2
-# Daily overdue checks kept per environment (test checks every few minutes, so it keeps fewer)
-KEEP_CHECKS = {"prod": 120, "test": 30}
+# Overdue checks kept
+KEEP_CHECKS = env_int("FOLLOWUP_KEEP_CHECKS", 120)
 
 
 def column_name(header: str) -> str:
     return slugify(header, "col")
 
 
-def db_name(env: str) -> str:
-    if env not in ENVIRONMENTS:
-        raise ValueError(f"Unknown environment {env!r} (use prod or test)")
-    if env == "prod":
-        return os.getenv("FOLLOWUP_PROD_DB") or os.getenv("PO_DB_NAME", "pending_po")
-    return os.getenv("FOLLOWUP_TEST_DB", "pending_po_test")
-
-
-def db_params(env: str) -> dict:
+def db_params() -> dict:
     return {
         "host": os.getenv("PO_DB_HOST", "localhost"),
         "port": int(os.getenv("PO_DB_PORT", "5432")),
         "user": os.getenv("PO_DB_USER", "postgres"),
         "password": os.getenv("PO_DB_PASSWORD", ""),
-        "dbname": db_name(env),
+        "dbname": os.getenv("PO_DB_NAME", "pending_po"),
         # Fail fast instead of hanging a run (and its lock) when the database is unreachable or stuck
         "connect_timeout": 10,
         "options": "-c statement_timeout=300000",
     }
 
 
-# Advisory lock id for "a run is executing"; each environment has its own database, so one id is enough
+# Advisory lock id for "a run is executing"
 RUN_LOCK_ID = 7_310_501
 
 
 class RunLock:
     """Held for the whole run on its own connection. A PostgreSQL advisory lock, so two server processes
-    (or the CLI and the admin page) can never run the same environment at the same time and double-send.
+    (or the CLI and the admin page) can never run at the same time and double-send.
     If the process dies, its connection closes and PostgreSQL releases the lock by itself."""
 
-    def __init__(self, env: str):
-        self.env = env
+    def __init__(self):
         self.conn = None
 
     def acquire(self) -> bool:
-        conn = psycopg.connect(**db_params(self.env), autocommit=True)
+        conn = psycopg.connect(**db_params(), autocommit=True)
         try:
             got = conn.execute("SELECT pg_try_advisory_lock(%s)", (RUN_LOCK_ID,)).fetchone()[0]
         except Exception:
@@ -102,8 +87,8 @@ class RunLock:
             self.conn = None
 
 
-def ensure_database(env: str) -> None:
-    params = db_params(env)
+def ensure_database() -> None:
+    params = db_params()
     with psycopg.connect(**{**params, "dbname": "postgres"}, autocommit=True) as conn:
         if not conn.execute("SELECT 1 FROM pg_database WHERE datname = %s", (params["dbname"],)).fetchone():
             conn.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(params["dbname"])))
@@ -135,7 +120,7 @@ def ensure_followup_schema(conn: psycopg.Connection) -> None:
                 started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
                 finished_at TIMESTAMPTZ,
                 trigger TEXT NOT NULL,       -- manual / auto
-                mode TEXT NOT NULL,          -- preview / dry / live
+                mode TEXT NOT NULL,          -- dry / live
                 status TEXT NOT NULL,        -- running / ok / failed
                 summary JSONB,
                 report JSONB,
@@ -155,11 +140,66 @@ def ensure_followup_schema(conn: psycopg.Connection) -> None:
                 od_days NUMERIC,
                 PRIMARY KEY (period_start, line_key))""")
         conn.execute("CREATE INDEX IF NOT EXISTS overdue_snapshot_vendor ON followup.overdue_snapshot (vendor_code)")
+        # Scenario 4 (management meeting): the vendor's own e-mail ids, kept next to Phone_Master's numbers
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS followup.vendor_contacts (
+                vendor_code TEXT PRIMARY KEY,
+                emails TEXT NOT NULL DEFAULT '',
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT now())""")
+        # One row per Scenario 3 agent call: what was said, and what was understood from it (services/calls.py)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS followup.call_results (
+                key TEXT PRIMARY KEY,                 -- ours: travels inside the call script token
+                frejun_call_id TEXT,
+                vendor_code TEXT NOT NULL,
+                vendor_name TEXT NOT NULL DEFAULT '',
+                mobile TEXT NOT NULL DEFAULT '',
+                run_trigger TEXT NOT NULL DEFAULT '',
+                lines JSONB NOT NULL DEFAULT '[]',    -- the overdue lines the agent was given
+                status TEXT NOT NULL DEFAULT 'placed',  -- placed / in_call / completed / no_response / failed
+                placed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                connected_at TIMESTAMPTZ,
+                ended_at TIMESTAMPTZ,
+                duration_seconds INT,
+                transcript JSONB NOT NULL DEFAULT '[]',
+                recording_url TEXT,
+                events JSONB NOT NULL DEFAULT '[]',   -- FreJun status callbacks for this call
+                analysis JSONB,
+                analysis_status TEXT NOT NULL DEFAULT 'pending',  -- pending / ok / failed / skipped
+                analysis_error TEXT)""")
+        # Dashboard users, created on the admin page (services/users.py). Passwords are stored as salted scrypt hashes.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS followup.users (
+                username TEXT PRIMARY KEY,
+                display_name TEXT NOT NULL DEFAULT '',
+                password_hash TEXT NOT NULL,
+                active BOOLEAN NOT NULL DEFAULT TRUE,
+                failed_logins INT NOT NULL DEFAULT 0,
+                locked_until TIMESTAMPTZ,
+                created_by TEXT NOT NULL DEFAULT '',
+                created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                last_login_at TIMESTAMPTZ)""")
+        # Who did what on the dashboard (start / stop / run / vendor changes / logins)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS followup.audit_log (
+                id BIGSERIAL PRIMARY KEY,
+                at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                actor TEXT NOT NULL,
+                action TEXT NOT NULL,
+                detail JSONB NOT NULL DEFAULT '{}')""")
+        conn.execute("CREATE INDEX IF NOT EXISTS audit_log_at ON followup.audit_log (at DESC)")
+        # Tidy databases made by earlier versions
+        conn.execute("ALTER TABLE followup.users DROP COLUMN IF EXISTS role")
+        conn.execute("ALTER TABLE followup.audit_log DROP COLUMN IF EXISTS env")
+        conn.execute("""UPDATE followup.settings SET key = 'vendor_codes' WHERE key = 'pilot_vendor_codes'
+                        AND NOT EXISTS (SELECT 1 FROM followup.settings WHERE key = 'vendor_codes')""")
+        conn.execute("CREATE INDEX IF NOT EXISTS call_results_vendor ON followup.call_results (vendor_code, placed_at DESC)")
+        conn.execute("CREATE INDEX IF NOT EXISTS call_results_frejun ON followup.call_results (frejun_call_id)")
 
 
 @contextmanager
-def connect(env: str):
-    with psycopg.connect(**db_params(env), row_factory=dict_row) as conn:
+def connect():
+    with psycopg.connect(**db_params(), row_factory=dict_row) as conn:
         yield conn
 
 
@@ -179,16 +219,12 @@ def mirrored_columns(conn, table: str) -> list[tuple[str, str]]:
 
 
 class PgStore:
-    def __init__(self, env: str):
-        self.env = env
-
     def read_records(self, title: str) -> list[dict]:
-        with connect(self.env) as conn:
+        with connect() as conn:
             if title in SOURCE_TABLES:
                 table = SOURCE_TABLES[title]
                 if not table_exists(conn, SHEETS_SCHEMA, table):
-                    raise RuntimeError(f"{self.env} database has no {SHEETS_SCHEMA}.{table} "
-                                       f"({'run the sheet sync' if self.env == 'prod' else 'copy production data into test'})")
+                    raise RuntimeError(f"Database has no {SHEETS_SCHEMA}.{table}; run the sheet sync")
                 cols = mirrored_columns(conn, table)
                 rows = conn.execute(sql.SQL("SELECT {} FROM {} ORDER BY sheet_row").format(
                     sql.SQL(", ").join(sql.Identifier(c) for c, _ in cols),
@@ -200,8 +236,8 @@ class PgStore:
             query = sql.SQL("SELECT * FROM {}").format(sql.Identifier(FOLLOWUP_SCHEMA, table))
             if title == "Alert_Log":
                 query = sql.SQL("SELECT * FROM followup.alert_log WHERE alert_date >= to_char("
-                                "(now() AT TIME ZONE 'Asia/Kolkata') - make_interval(days => %s), 'YYYY-MM-DD')")
-                rows = conn.execute(query, (ALERT_LOG_READ_DAYS,)).fetchall()
+                                "(now() AT TIME ZONE %s) - make_interval(days => %s), 'YYYY-MM-DD')")
+                rows = conn.execute(query, (TIMEZONE.key, ALERT_LOG_READ_DAYS)).fetchall()
             else:
                 rows = conn.execute(query).fetchall()
             return [{h: (r.get(column_name(h)) or "") for h in headers} for r in rows]
@@ -216,7 +252,7 @@ class PgStore:
             sql.Identifier(FOLLOWUP_SCHEMA, table),
             sql.SQL(", ").join(sql.Identifier(c) for c in cols),
             sql.SQL(", ").join(sql.Placeholder() * len(cols)))
-        with connect(self.env) as conn, conn.cursor() as cur:
+        with connect() as conn, conn.cursor() as cur:
             cur.executemany(stmt, [[_text(r.get(h)) for h in headers] for r in rows])
 
     def upsert_rows(self, title: str, rows: list[dict], key: str) -> None:
@@ -227,7 +263,7 @@ class PgStore:
         if key != table_key:
             raise ValueError(f"{title} is keyed on {table_key!r}, not {key!r}")
         known = set(TAB_HEADERS[title])
-        with connect(self.env) as conn, conn.cursor() as cur:
+        with connect() as conn, conn.cursor() as cur:
             for r in rows:
                 headers = [h for h in r if h in known]
                 cols = [column_name(h) for h in headers]
@@ -245,10 +281,13 @@ class PgStore:
 
     # ----- daily overdue checks (domain/overdue.py) -----
 
+    def vendor_emails(self) -> dict[str, str]:
+        return vendor_emails()
+
     def record_check(self, period_start, lines: dict[str, dict], master_rows: int) -> None:
         """Store which lines are overdue in this check period. Running again in the same period replaces it,
         so the latest check of the day wins. Old checks beyond KEEP_CHECKS are dropped."""
-        with connect(self.env) as conn, conn.transaction():
+        with connect() as conn, conn.transaction():
             conn.execute("DELETE FROM followup.overdue_checks WHERE period_start = %s", (period_start,))
             conn.execute("INSERT INTO followup.overdue_checks (period_start, master_rows, overdue_lines) VALUES (%s, %s, %s)",
                          (period_start, master_rows, len(lines)))
@@ -257,11 +296,11 @@ class PgStore:
                 for key, line in lines.items():
                     copy.write_row((period_start, key, line["vendor_code"], line["od"]))
             conn.execute("DELETE FROM followup.overdue_checks WHERE period_start NOT IN (SELECT period_start FROM "
-                         "followup.overdue_checks ORDER BY period_start DESC LIMIT %s)", (KEEP_CHECKS[self.env],))
+                         "followup.overdue_checks ORDER BY period_start DESC LIMIT %s)", (KEEP_CHECKS,))
 
     def recent_checks(self, upto, limit: int = 7) -> list[tuple]:
         """[(period start, {overdue line keys})] of the last `limit` checks at or before `upto`, newest first."""
-        with connect(self.env) as conn:
+        with connect() as conn:
             starts = [r["period_start"] for r in conn.execute(
                 "SELECT period_start FROM followup.overdue_checks WHERE period_start <= %s "
                 "ORDER BY period_start DESC LIMIT %s", (upto, limit)).fetchall()]
@@ -279,24 +318,23 @@ def _text(v):
 
 # ---------- mirrored tabs edited from the dashboard (Phone_Master) ----------
 
-def source_headers(env: str, title: str) -> list[str]:
+def source_headers(title: str) -> list[str]:
     """Original sheet headers of a mirrored tab (Master / Phone_Master), in sheet order; [] if not there yet."""
     table = SOURCE_TABLES[title]
-    with connect(env) as conn:
+    with connect() as conn:
         if not table_exists(conn, SHEETS_SCHEMA, table):
             return []
         return [h for _, h in mirrored_columns(conn, table)]
 
 
-def upsert_source_rows(env: str, title: str, rows: list[dict], key: str) -> None:
+def upsert_source_rows(title: str, rows: list[dict], key: str) -> None:
     """Write rows of a mirrored tab, matched on their `key` header: update the given columns, or add the row
-    at the end. All or nothing. In production the Google Sheet is the source: write it there first; the next
+    at the end. All or nothing. The Google Sheet is the source: write it there first; the next
     sheet sync replaces this copy with what the sheet holds."""
     table = SOURCE_TABLES[title]
-    with connect(env) as conn, conn.transaction():
+    with connect() as conn, conn.transaction():
         if not table_exists(conn, SHEETS_SCHEMA, table):
-            raise ValueError(f"The {env} database has no {title} yet "
-                             f"({'run the sheet sync' if env == 'prod' else 'copy production data into test'})")
+            raise ValueError(f"The database has no {title} yet; run the sheet sync")
         cols: dict[str, str] = {}
         for c, h in mirrored_columns(conn, table):
             cols.setdefault(h, c)
@@ -318,127 +356,26 @@ def upsert_source_rows(env: str, title: str, rows: list[dict], key: str) -> None
 
 # ---------- environment maintenance ----------
 
-def init_environment(env: str) -> None:
-    ensure_database(env)
-    with connect(env) as conn:
+def init() -> None:
+    """Create the database and the follow-up tables; run once at startup."""
+    ensure_database()
+    with connect() as conn:
         ensure_followup_schema(conn)
 
 
-def copy_prod_to_test() -> dict:
-    """Copy production Master + Phone_Master into the test database and clear test follow-up state."""
-    copied = {}
-    with psycopg.connect(**db_params("prod"), row_factory=dict_row) as src, psycopg.connect(**db_params("test")) as dst:
-        ensure_schema(dst)
-        state = load_state(dst)
-        for title, table in SOURCE_TABLES.items():
-            if not table_exists(src, SHEETS_SCHEMA, table):
-                raise RuntimeError(f"Production has no {SHEETS_SCHEMA}.{table}; sync the sheet first")
-            cols = mirrored_columns(src, table)
-            rows = src.execute(sql.SQL("SELECT sheet_row, {} FROM {} ORDER BY sheet_row").format(
-                sql.SQL(", ").join(sql.Identifier(c) for c, _ in cols),
-                sql.Identifier(SHEETS_SCHEMA, table))).fetchall()
-            gid_row = src.execute("SELECT gid FROM public.sync_state WHERE table_name = %s", (table,)).fetchone()
-            tab = Tab(
-                gid=gid_row["gid"] if gid_row else zlib.crc32(table.encode()), title=title, table=table,
-                headers=[h for _, h in cols], columns=[c for c, _ in cols],
-                rows=[(r["sheet_row"], [r[c] for c, _ in cols]) for r in rows],
-                content_hash=f"copied-from-prod-{len(rows)}",
-            )
-            write_tab(dst, tab, state.get(tab.gid))
-            copied[title] = len(rows)
-    clear_state("test")
-    if os.getenv("FOLLOWUP_TEST_SCENARIO_MOBILE"):
-        copied["scenario_numbers_set"] = set_test_scenario_numbers(os.environ["FOLLOWUP_TEST_SCENARIO_MOBILE"])
-    return copied
+def master_synced_at() -> str | None:
+    """When the PO Master was last copied from the Google Sheet."""
+    with connect() as conn:
+        if not table_exists(conn, "public", "sync_state"):
+            return None
+        r = conn.execute("SELECT last_synced_at FROM public.sync_state WHERE table_name = 'master'").fetchone()
+    return r["last_synced_at"].isoformat() if r else None
 
 
-def set_test_scenario_numbers(mobile: str) -> int:
-    """Point every test vendor's Phone_Master Scenario 1/2/3 numbers at `mobile`, so test runs only ever
-    message that one number. Test only. Returns the number of vendor rows updated."""
-    from backend.po_followup.domain.escalation import norm
-
-    with connect("test") as conn:
-        if not table_exists(conn, SHEETS_SCHEMA, "phone_master"):
-            raise RuntimeError("Test has no Phone_Master; copy production to test first")
-        cols = [c for c, h in mirrored_columns(conn, "phone_master")
-                if any(re.fullmatch(rf"scenario {n}( .*)?", norm(h)) for n in (1, 2, 3))]
-        if not cols:
-            raise RuntimeError("Test Phone_Master has no Scenario 1/2/3 columns")
-        return conn.execute(sql.SQL("UPDATE {} SET {}").format(
-            sql.Identifier(SHEETS_SCHEMA, "phone_master"),
-            sql.SQL(", ").join(sql.SQL("{} = %s").format(sql.Identifier(c)) for c in cols)),
-            [mobile] * len(cols)).rowcount
-
-
-def clear_state(env: str) -> None:
-    """Empty the follow-up tables (tracker, alert log, tasks, run history). Test only."""
-    if env != "test":
-        raise ValueError("Only the test environment can be cleared")
-    with connect(env) as conn:
-        ensure_followup_schema(conn)
-        conn.execute(sql.SQL("TRUNCATE {}").format(sql.SQL(", ").join(
-            [sql.Identifier(FOLLOWUP_SCHEMA, t) for t, _ in STATE_TABLES.values()]
-            + [sql.Identifier(FOLLOWUP_SCHEMA, t) for t in ("runs", "overdue_snapshot", "overdue_checks")])))
-
-
-def import_sheet_state(env: str = "prod") -> dict:
-    """One-time: copy Line_Tracker / Alert_Log / Call_Tasks / Meeting_Tasks rows that n8n wrote in the
-    Google Sheet (mirrored by po_sync) into the follow-up tables, so escalation continues where it left off."""
-    store = PgStore(env)
-    done = {}
-    with connect(env) as conn:
-        ensure_followup_schema(conn)
-        if conn.execute("SELECT count(*) AS n FROM followup.line_tracker").fetchone()["n"]:
-            raise RuntimeError("followup.line_tracker already has rows; import only runs on an empty tracker")
-        for title, (table, key) in STATE_TABLES.items():
-            if not table_exists(conn, SHEETS_SCHEMA, table):
-                continue
-            cols = mirrored_columns(conn, table)
-            rows = conn.execute(sql.SQL("SELECT {} FROM {}").format(
-                sql.SQL(", ").join(sql.Identifier(c) for c, _ in cols),
-                sql.Identifier(SHEETS_SCHEMA, table))).fetchall()
-            done[title] = [{h: (r[c] or "") for c, h in cols} for r in rows]
-    for title, rows in done.items():
-        key = STATE_TABLES[title][1]
-        if key:
-            store.upsert_rows(title, [r for r in rows if r.get(key)], key)
-        else:
-            store.append_rows(title, rows)
-    return {t: len(r) for t, r in done.items()}
-
-
-def stats(env: str) -> dict:
-    """Numbers for the admin page."""
-    out: dict = {"database": db_name(env)}
-    with connect(env) as conn:
-        ensure_followup_schema(conn)
-        if table_exists(conn, SHEETS_SCHEMA, "master"):
-            cols = dict((h.strip().lower(), c) for c, h in mirrored_columns(conn, "master"))
-            od, vendor = cols.get("od days"), cols.get("vendor code")
-            out["master_rows"] = conn.execute("SELECT count(*) AS n FROM sheets.master").fetchone()["n"]
-            if od and vendor:
-                r = conn.execute(sql.SQL(
-                    "SELECT count(*) AS lines, count(DISTINCT {v}) AS vendors FROM sheets.master "
-                    "WHERE {o} ~ '^-?[0-9.,]+$' AND replace({o}, ',', '')::numeric > 0").format(
-                    o=sql.Identifier(od), v=sql.Identifier(vendor))).fetchone()
-                out["pending_lines"], out["pending_vendors"] = r["lines"], r["vendors"]
-        else:
-            out["master_rows"] = None
-        if table_exists(conn, "public", "sync_state"):
-            r = conn.execute("SELECT last_synced_at FROM public.sync_state WHERE table_name = 'master'").fetchone()
-            out["master_synced_at"] = r["last_synced_at"].isoformat() if r else None
-        out["tracker"] = conn.execute(
-            "SELECT coalesce(status, '-') AS status, coalesce(escalation_level, '-') AS level, count(*) AS n "
-            "FROM followup.line_tracker GROUP BY 1, 2 ORDER BY 1, 2").fetchall()
-        out["alert_log_rows"] = conn.execute("SELECT count(*) AS n FROM followup.alert_log").fetchone()["n"]
-    return out
-
-
-def table_rows(env: str, title: str, limit: int = 200) -> list[dict]:
+def table_rows(title: str, limit: int = 200) -> list[dict]:
     table, key = STATE_TABLES[title]
     order = "id DESC" if not key else "updated_at DESC NULLS LAST"
-    with connect(env) as conn:
-        ensure_followup_schema(conn)
+    with connect() as conn:
         rows = conn.execute(sql.SQL("SELECT * FROM {} ORDER BY " + order + " LIMIT %s").format(
             sql.Identifier(FOLLOWUP_SCHEMA, table)), (limit,)).fetchall()
     return [{h: (r.get(column_name(h)) or "") for h in TAB_HEADERS[title]} for r in rows]
@@ -457,58 +394,48 @@ def _like_literal(s: str) -> str:
     return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
-def vendor_rows(env: str, title: str, vendor_code: str, limit: int = 500) -> list[dict]:
+def vendor_rows(title: str, vendor_code: str, limit: int = 500) -> list[dict]:
     """One vendor's rows of a follow-up table, oldest first."""
     table, key = STATE_TABLES[title]
     header, pattern = _VENDOR_MATCH[title]
     order = sql.SQL("id") if not key else sql.Identifier(column_name(key))
-    with connect(env) as conn:
-        ensure_followup_schema(conn)
+    with connect() as conn:
         rows = conn.execute(sql.SQL("SELECT * FROM {} WHERE {} LIKE %s ORDER BY {} LIMIT %s").format(
             sql.Identifier(FOLLOWUP_SCHEMA, table), sql.Identifier(column_name(header)), order),
             (pattern.format(_like_literal(vendor_code)), limit)).fetchall()
     return [{h: (r.get(column_name(h)) or "") for h in TAB_HEADERS[title]} for r in rows]
 
 
-def alert_days(env: str, statuses: set[str]) -> list[dict]:
-    """Alert_Log condensed to one row per vendor, level and day: the first time a message with one of
-    `statuses` went out, and whether every one of them was simulated (DRY_RUN)."""
-    with connect(env) as conn:
-        ensure_followup_schema(conn)
-        return conn.execute(
-            "SELECT vendor, escalation_level AS level, alert_date, min(timestamp) AS first_at, "
-            "bool_and(status = 'DRY_RUN') AS simulated FROM followup.alert_log "
-            "WHERE status = ANY(%s) GROUP BY 1, 2, 3 ORDER BY 3, 4", (sorted(statuses),)).fetchall()
-
-
-def reset_vendor(env: str, vendor_code: str) -> dict:
-    """Forget one vendor's escalation (tracker, alert log, tasks) so it starts again at Scenario 1. Test only."""
-    if env != "test":
-        raise ValueError("Only the test environment can be reset")
-    deleted = {}
-    with connect(env) as conn, conn.transaction():
-        ensure_followup_schema(conn)
-        for title, (header, pattern) in _VENDOR_MATCH.items():
-            table, _ = STATE_TABLES[title]
-            deleted[title] = conn.execute(sql.SQL("DELETE FROM {} WHERE {} LIKE %s").format(
-                sql.Identifier(FOLLOWUP_SCHEMA, table), sql.Identifier(column_name(header))),
-                (pattern.format(_like_literal(vendor_code)),)).rowcount
-        # its overdue history too, so its streak (and Scenario 1) starts again from the next check
-        deleted["overdue_snapshot"] = conn.execute("DELETE FROM followup.overdue_snapshot WHERE vendor_code = %s",
-                                                   (vendor_code,)).rowcount
-    return deleted
-
-
-def get_settings(env: str) -> dict:
-    with connect(env) as conn:
-        ensure_followup_schema(conn)
+def get_settings() -> dict:
+    with connect() as conn:
         return {r["key"]: r["value"] for r in conn.execute("SELECT key, value FROM followup.settings").fetchall()}
 
 
-def save_settings(env: str, values: dict) -> None:
-    with connect(env) as conn, conn.transaction():
+def save_settings(values: dict) -> None:
+    with connect() as conn, conn.transaction():
         for k, v in values.items():
             conn.execute(
                 "INSERT INTO followup.settings (key, value) VALUES (%s, %s) "
                 "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()",
                 (k, json.dumps(v)))
+
+
+# ---------- vendor e-mail ids (Scenario 4) ----------
+
+def vendor_emails() -> dict[str, str]:
+    """Vendor code -> comma-separated e-mail ids saved on the dashboard."""
+    with connect() as conn:
+        return {r["vendor_code"]: r["emails"] for r in
+                conn.execute("SELECT vendor_code, emails FROM followup.vendor_contacts WHERE emails <> ''").fetchall()}
+
+
+def save_vendor_emails(emails: dict[str, str]) -> None:
+    """Set (or, with a blank value, remove) several vendors' e-mail ids in one transaction."""
+    with connect() as conn, conn.transaction():
+        for code, value in emails.items():
+            if value:
+                conn.execute(
+                    "INSERT INTO followup.vendor_contacts (vendor_code, emails) VALUES (%s, %s) "
+                    "ON CONFLICT (vendor_code) DO UPDATE SET emails = EXCLUDED.emails, updated_at = now()", (code, value))
+            else:
+                conn.execute("DELETE FROM followup.vendor_contacts WHERE vendor_code = %s", (code,))

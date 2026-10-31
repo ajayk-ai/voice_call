@@ -324,9 +324,9 @@ def alert_key(vendor_code: str, level: int, run_iso: str) -> str:
     return f"{vendor_code}|L{level}|{alert_type(level) if level <= MAX_LEVEL else 'MAX'}|{run_iso}"
 
 
-def select_alerts(groups: list[dict], sent_keys_today: set[str], pilot_mode: bool, pilot_vendor_codes: set[str]) -> list[dict]:
+def select_alerts(groups: list[dict], sent_keys_today: set[str], vendor_codes: frozenset[str] | None) -> list[dict]:
     """Attach alertType/alertKey, then drop: levels out of range, keys already in today's Alert_Log,
-    repeat vendor+level groups, and (when `pilot_mode`: only selected vendors) vendors not in the list."""
+    repeat vendor+level groups, and vendors not in `vendor_codes` (None: every vendor is followed up)."""
     seen = set()
     out = []
     for g in groups:
@@ -339,7 +339,7 @@ def select_alerts(groups: list[dict], sent_keys_today: set[str], pilot_mode: boo
         if (g["vendorCode"], level) in seen:
             continue
         seen.add((g["vendorCode"], level))
-        if pilot_mode and txt(g["vendorCode"]) not in pilot_vendor_codes:
+        if vendor_codes is not None and txt(g["vendorCode"]) not in vendor_codes:
             continue
         out.append(g)
     return out
@@ -361,11 +361,20 @@ def recipients_from(raw: str, role: str, vendor_name: str, label: str, fallback_
     return out or [{"role": role, "name": fallback_name, "rawMobile": ""}]
 
 
-def normalize_mobile(raw: str, pilot_mode: bool, pilot_mobile: str) -> str:
+def normalize_mobile(raw: str) -> str:
     """First number in the cell, digits only, no leading zeros, 10-digit Indian numbers get 91."""
-    source = pilot_mobile if pilot_mode else raw
-    digits = re.sub(r"\D", "", (split_numbers(str(source or "")) or [""])[0]).lstrip("0")
+    digits = re.sub(r"\D", "", (split_numbers(str(raw or "")) or [""])[0]).lstrip("0")
     return "91" + digits if len(digits) == 10 else digits
+
+
+def indian_mobile(raw) -> str | None:
+    """The 10-digit Indian mobile number in `raw` (a +91 or 0 in front is dropped), or None if it is not one."""
+    digits = re.sub(r"\D", "", str(raw if raw is not None else ""))
+    if len(digits) == 12 and digits.startswith("91"):
+        digits = digits[2:]
+    elif len(digits) == 11 and digits.startswith("0"):
+        digits = digits[1:]
+    return digits if re.fullmatch(r"[6-9]\d{9}", digits) else None
 
 
 def is_valid_mobile(mobile: str) -> bool:

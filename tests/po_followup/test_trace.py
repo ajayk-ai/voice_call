@@ -2,14 +2,11 @@
 
 from datetime import datetime, timedelta
 
-from fastapi.testclient import TestClient
 
-from backend.po_followup.api import admin
 from backend.po_followup.services import trace
-from backend.po_followup.services.run import ZONE
-from backend.voice_agent.app import app
+from backend.core.env import TIMEZONE
 
-NOW = datetime(2026, 10, 9, 10, 0, tzinfo=ZONE)
+NOW = datetime(2026, 10, 9, 10, 0, tzinfo=TIMEZONE)
 PERIOD = 1  # check period in minutes (test environment style)
 
 
@@ -51,16 +48,16 @@ def test_all_done_and_failed_messages_stay_on_their_step():
     steps = trace.journey(3, NOW, [log(1, NOW, "FAILED"), log(1, NOW, "SENT")], PERIOD, NOW)
     assert all(s["state"] == "done" for s in steps)
     assert [m["status"] for m in steps[1]["messages"]] == ["SENT", "FAILED"]  # newest first
-    assert "All steps done" in trace.next_step_note(steps, 4, True, {"pilot_mode": True}, None)
+    assert "All steps done" in trace.next_step_note(steps, 4, True, {"vendor_scope": "selected"}, None)
 
 
-def test_next_note_explains_pilot_skip_and_no_lines():
+def test_next_note_explains_unchosen_vendor_and_no_lines():
     steps = trace.journey(None, None, [], PERIOD, NOW)
-    assert "not selected" in trace.next_step_note(steps, 3, False, {"pilot_mode": True}, None)
+    assert "not selected" in trace.next_step_note(steps, 3, False, {"vendor_scope": "selected"}, None)
     assert "not selected" in trace.next_step_note(steps, 3, False, {"vendor_scope": "selected"}, None)
     assert "not selected" not in trace.next_step_note(steps, 3, False, {"vendor_scope": "all"}, None)
-    assert "No pending lines" in trace.next_step_note(steps, 0, True, {"pilot_mode": True}, None)
-    assert "due now" in trace.next_step_note(steps, 3, True, {"pilot_mode": True, "auto_enabled": True}, NOW)
+    assert "No pending lines" in trace.next_step_note(steps, 0, True, {"vendor_scope": "selected"}, None)
+    assert "due now" in trace.next_step_note(steps, 3, True, {"vendor_scope": "selected", "auto_enabled": True}, NOW)
 
 
 def test_index_vendors_and_contacts_fallback():
@@ -77,12 +74,13 @@ def test_index_vendors_and_contacts_fallback():
     assert c["source"] == "Phone_Master" and c["scm_hod_mobile"] == "9222222222"
 
 
-def test_vendor_test_request_validation(monkeypatch):
-    monkeypatch.setenv("ADMIN_PASSWORD", "adm")
-    monkeypatch.setattr(admin, "_ready", True)
-    client = TestClient(app)
-    h = {"X-Admin-Code": "adm"}
-    assert client.post("/admin/api/test/vendor-test", json={"vendor_code": "1", "mobile": "9876543210", "minutes": 0},
-                       headers=h).status_code == 422
-    assert client.post("/admin/api/test/vendor-test", json={"vendor_code": "1", "mobile": "123"},
-                       headers=h).status_code == 422
+def test_a_vendor_trace_opens_with_the_real_settings(monkeypatch):
+    """The whole trace with default settings, so it cannot depend on a setting that no longer exists."""
+    master = [{"Vendor Code": "100019", "Vendor Name": "Bull", "PO No": "1", "PO Item No": "10", "Del.Sch Line": "1", "OD Days": "5"}]
+    monkeypatch.setattr(trace.store, "get_settings", lambda: {})
+    monkeypatch.setattr(trace.store, "vendor_rows", lambda title, code: [])
+    monkeypatch.setattr(trace, "source_records", lambda title: master if title == "Master" else [])
+    monkeypatch.setattr(trace.store, "PgStore", lambda: type("S", (), {"read_records": lambda self, title: []})())
+    monkeypatch.setattr(trace.service, "recent_auto_runs", lambda limit=10: [])
+    t = trace.vendor_trace("100019")
+    assert t["pending_lines"] == 1 and t["steps"][0]["state"] == "next"

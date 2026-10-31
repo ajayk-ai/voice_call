@@ -1,6 +1,6 @@
 """Google service account credentials with domain-wide delegation (Sheets, Calendar, the sheet sync).
 
-The key comes from GOOGLE_SERVICE_ACCOUNT_JSON (the key file's contents, for servers like Render) or
+The key comes from GOOGLE_SERVICE_ACCOUNT_JSON (the key file's contents) or
 GOOGLE_SERVICE_ACCOUNT_FILE (a path, for local use); GOOGLE_DELEGATED_USER is the Workspace user impersonated.
 Each scope must be authorized for the client in Workspace Admin > Security > API controls > Domain-wide delegation."""
 

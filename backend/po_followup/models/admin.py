@@ -1,52 +1,39 @@
-"""Request bodies and path types of the admin API (/admin/api/*)."""
-
-from typing import Literal
+"""Request bodies of the admin API (/admin/api/*)."""
 
 from pydantic import BaseModel, ConfigDict, Field
 
-Env = Literal["prod", "test"]
-Mode = Literal["preview", "dry", "live"]
-Table = Literal["Line_Tracker", "Alert_Log", "Call_Tasks", "Meeting_Tasks"]
 
-
-class SettingsUpdate(BaseModel):
-    """Any subset of the environment's settings; detailed checks are in services.followup.validate_settings."""
+class UserCreate(BaseModel):
+    """An SCM user made on the admin page."""
     model_config = ConfigDict(extra="forbid")
 
-    check_period_minutes: float | None = None
-    auto_enabled: bool | None = None
-    auto_mode: Literal["dry", "live"] | None = None
-    schedule_type: Literal["daily", "interval"] | None = None
-    daily_time: str | None = None
-    every_minutes: float | None = None
-    pilot_mode: bool | None = None
-    pilot_mobile: str | None = None
-    pilot_call_mobile: str | None = None
-    pilot_vendor_codes: str | None = None
-    vendor_scope: Literal["selected", "all"] | None = None
-    scm_hod_mobile: str | None = None
-    max_lines_per_message: int | None = None
-    refresh_from_sheet: bool | None = None
-    confirm: str | None = None  # "LIVE" to turn on automatic live sending in production
+    username: str = Field(max_length=60)
+    password: str = Field(max_length=200)
+    display_name: str = Field("", max_length=100)
 
 
-class RunRequest(BaseModel):
-    mode: Mode
-    confirm: str | None = None  # "LIVE" for a live production run
+class UserUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    password: str | None = Field(None, max_length=200)  # reset
+    active: bool | None = None
+    display_name: str | None = Field(None, max_length=100)
 
 
-class VendorTest(BaseModel):
-    """Walk one test vendor through every scenario, `minutes` apart, with all messages going to `mobile`
-    and the Scenario 3 agent call to `call_mobile` (blank = `mobile`)."""
-    vendor_code: str = Field(min_length=1, max_length=40)
-    mobile: str = Field(min_length=10, max_length=20)
-    call_mobile: str = Field("", max_length=20)
-    minutes: float = Field(1, ge=1, le=1440)
-    mode: Literal["dry", "live"] = "live"
-    auto: bool = True  # run the next scenarios automatically (needs the scheduler)
+class WhatsAppCheck(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    mobile: str = Field(max_length=20)
+    message: str = Field("", max_length=1000)  # blank = a sample Scenario 1 alert
 
 
-class VendorCall(BaseModel):
-    """Ring `mobile` now with the voice agent reading this vendor's overdue lines (test data)."""
-    vendor_code: str = Field(min_length=1, max_length=40)
-    mobile: str = Field(min_length=10, max_length=20)
+class CallCheck(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    mobile: str = Field(max_length=20)
+
+
+class MeetingCheck(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    email: str = Field(max_length=200)

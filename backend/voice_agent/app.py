@@ -1,4 +1,4 @@
-"""FastAPI application: the voice agent, the PO follow-up admin and their web pages in one server."""
+"""FastAPI application: the voice agent, the PO follow-up and their web pages in one server."""
 
 import logging
 from contextlib import asynccontextmanager
@@ -31,12 +31,12 @@ async def lifespan(app: FastAPI):
 def create_app() -> FastAPI:
     app = FastAPI(
         title="PO Voice Agent",
-        description="Phone and browser voice agent (FreJun + Gemini Live) and the PO follow-up admin.",
+        description="PO follow-up with WhatsApp, voice agent calls (FreJun + Gemini Live) and meetings.",
         lifespan=lifespan,
     )
     for router in routers:
         app.include_router(router)
-    # Shared frontend files (frontend/assets): /assets/ui.css is linked by every page
+    # Shared frontend files (frontend/assets): /assets/app.css is linked by every page
     app.mount("/assets", StaticFiles(directory=frontend.ASSETS), name="assets")
     # The dashboard sends every overdue PO line at once (~2 MB of JSON); compressed it is a fraction of that
     app.add_middleware(GZipMiddleware, minimum_size=1000)
