@@ -19,7 +19,7 @@ import os
 import re
 import uuid
 from datetime import date, datetime, timedelta
-from backend.core.env import TIMEZONE
+from backend.core.env import TIMEZONE, env_int
 
 from psycopg.types.json import Jsonb
 
@@ -27,8 +27,8 @@ from backend.po_followup.db import store
 
 log = logging.getLogger("po_followup.calls")
 
-ANALYSIS_MODEL = os.getenv("CALL_ANALYSIS_MODEL", "gemini-2.5-flash")
-MAX_TRANSCRIPT_TURNS = 400
+ANALYSIS_MODEL = os.getenv("CALL_ANALYSIS_MODEL")
+MAX_TRANSCRIPT_TURNS = env_int("CALL_MAX_TRANSCRIPT_TURNS", 400)
 
 OUTCOMES = ("reached", "wrong_person", "refused", "incomplete")
 LINE_STATUSES = ("dispatched", "ready_to_dispatch", "in_production", "not_started", "unknown")
@@ -327,6 +327,30 @@ def _save_analysis(key: str, result: dict | None, status: str, error: str | None
 
 
 # ---------- reading ----------
+
+def spoke_since(vendor_code: str, since: datetime) -> datetime | None:
+    """When the vendor last spoke on an agent call placed at or after `since`, or None if it has not."""
+    with store.connect() as conn:
+        return conn.execute("SELECT max(placed_at) AS at FROM followup.call_results "
+                            "WHERE vendor_code = %s AND status = 'completed' AND placed_at >= %s",
+                            (vendor_code, since)).fetchone()["at"]
+
+
+def live_calls(since: datetime) -> list[dict]:
+    """Calls placed since `since` that have not ended: [{"key", "frejun_call_id", "status"}]."""
+    with store.connect() as conn:
+        return conn.execute("SELECT key, frejun_call_id, status FROM followup.call_results "
+                            "WHERE status IN ('placed', 'in_call') AND frejun_call_id IS NOT NULL AND placed_at >= %s",
+                            (since,)).fetchall()
+
+
+def latest_calls() -> dict[str, dict]:
+    """Vendor code -> its newest agent call, for the trace list."""
+    with store.connect() as conn:
+        rows = conn.execute("SELECT DISTINCT ON (vendor_code) vendor_code, key, status, placed_at, analysis "
+                            "FROM followup.call_results ORDER BY vendor_code, placed_at DESC").fetchall()
+    return {r["vendor_code"]: _out(r) for r in rows}
+
 
 LIST_COLUMNS = ("key, frejun_call_id, vendor_code, vendor_name, mobile, status, placed_at, connected_at, ended_at, "
                 "duration_seconds, recording_url IS NOT NULL AS has_recording, analysis_status, analysis_error, analysis")

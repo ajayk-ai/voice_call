@@ -13,6 +13,16 @@ def no_call_rows(monkeypatch):
 
     for name in ("register_call", "attach_frejun_id", "fail_call"):
         monkeypatch.setattr(calls, name, lambda *a, **k: None)
+    monkeypatch.setattr(calls, "spoke_since", lambda *a, **k: None)
+    monkeypatch.setattr(calls, "latest_calls", lambda: {})
+
+
+@pytest.fixture(autouse=True)
+def no_emergency_stop(monkeypatch):
+    """The emergency stop is read from the database; tests must not depend on the real one."""
+    from backend.po_followup.db import store
+
+    monkeypatch.setattr(store, "emergency_on", lambda: False)
 
 
 @pytest.fixture(autouse=True)

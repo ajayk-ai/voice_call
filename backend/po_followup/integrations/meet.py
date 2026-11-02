@@ -8,12 +8,12 @@ from datetime import datetime, timedelta
 
 from google.auth.transport.requests import AuthorizedSession
 
-from backend.core.env import TIMEZONE
+from backend.core.env import TIMEZONE, env_int
 from backend.core.google_auth import delegated_credentials
 
 SCOPES = ["https://www.googleapis.com/auth/calendar.events"]
 EVENTS_URL = "https://www.googleapis.com/calendar/v3/calendars/primary/events"
-MEETING_MINUTES = 30
+MEETING_MINUTES = env_int("MEET_DURATION_MINUTES", 30)
 
 
 def calendar_session() -> AuthorizedSession:

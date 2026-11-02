@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>PO Agent</title>
-<link rel="stylesheet" href="/assets/app.css">
+<link rel="stylesheet" href="/assets/app.css?v=2">
 </head>
 <body>
 <header class="topbar"><div class="topbar-in">
@@ -15,10 +15,11 @@
     <button role="tab" data-tab="trace" aria-selected="false"><span class="n">3</span>Trace</button>
     <button role="tab" data-tab="calls" aria-selected="false"><span class="n">4</span>Call Results</button>
   </nav>
-  <div class="me"><span id="me"></span><button class="sm" onclick="signOut()">Sign out</button></div>
+  <div class="me"><button class="sm emergency" id="eStop">Emergency stop</button><span id="me"></span><button class="sm" onclick="signOut()">Sign out</button></div>
 </div></header>
 
 <main class="page">
+  <div class="note bad emergency-on" id="eBanner" role="alert" hidden><span id="eText"></span><button class="sm" id="eClear">Clear emergency stop</button></div>
   <!-- 1 · Vendor Master -->
   <section id="tab-vendors">
     <div class="page-head">
@@ -66,11 +67,15 @@
           <div class="note bad" id="rErr" role="alert" hidden></div>
           <button class="primary lg" id="rStart">Start follow-up</button>
           <div class="inline"><button id="rNow" style="flex:1">Run once now</button><button id="rStop" class="danger" style="flex:1">Stop</button></div>
+          <button id="rRestart" class="danger">Restart from Scenario 1</button>
           <details class="how"><summary>How the follow-up decides</summary><ol>
             <li>Overdue (OD above 0) at the first check: Scenario 1, WhatsApp to the vendor planner.</li>
             <li>Still overdue at the next check: Scenario 2, WhatsApp to vendor management.</li>
             <li>Still overdue: Scenario 3, the voice agent calls the vendor.</li>
-            <li>Still overdue: Scenario 4, management meeting invite.</li></ol></details>
+            <li>Still overdue: Scenario 4, management meeting invite.</li>
+            <li>Once a vendor has spoken on a call, the voice agent does not call it again in that cycle.</li>
+            <li>7 days after a vendor reaches Scenario 4, its overdue lines start again from Scenario 1.</li>
+            <li>Restart from Scenario 1 does the same for every vendor at once, whatever scenario it is at.</li></ol></details>
         </div></div>
         <div class="card"><div class="card-h"><h2>Recent runs</h2></div><div class="table-wrap"><table class="t"><tbody id="rRuns"></tbody></table></div></div>
       </div>
@@ -82,9 +87,16 @@
     <div class="page-head"><div><h1>Trace</h1><p id="tSub">Only the vendors you chose in Vendor Control.</p></div></div>
     <div class="tiles" id="tTiles"></div>
     <div class="card">
-      <div class="toolbar"><input id="tQ" type="search" placeholder="Search your vendors" aria-label="Search vendors" autocomplete="off"></div>
-      <div class="table-wrap"><table class="t"><thead><tr><th>Vendor</th><th class="r">Overdue lines</th><th class="r">Max days late</th><th>Scenario</th><th>Last action</th></tr></thead>
-        <tbody id="tBody"><tr><td colspan="5" class="empty">Loading…</td></tr></tbody></table></div>
+      <div class="toolbar"><input id="tQ" type="search" placeholder="Search your vendors" aria-label="Search vendors" autocomplete="off">
+        <select id="tPg" aria-label="Purchasing group"></select>
+        <select id="tBuyer" aria-label="Buyer"></select>
+        <select id="tAge" aria-label="Days late"><option value="">Any days late</option><option value="1-7">1 to 7 days late</option><option value="8-30">8 to 30 days late</option><option value="31-">Over 30 days late</option></select>
+        <select id="tCall" aria-label="Last call"><option value="">Any call result</option><option value="completed">Answered</option><option value="no_response">No response</option><option value="failed">Call failed</option><option value="none">Not called</option></select>
+        <select id="tDelivery" aria-label="Delivery"><option value="">Any delivery</option><option value="problem">Not delivered</option></select>
+        <button class="sm" id="tClear" hidden>Clear filters</button>
+        <button class="sm" id="tCsv">Download list</button></div>
+      <div class="table-wrap"><table class="t"><thead><tr><th>Vendor</th><th>Purchasing group</th><th class="r">Overdue lines</th><th class="r">POs</th><th class="r">Max days late</th><th>Scenario</th><th>Last call</th><th>Last action</th></tr></thead>
+        <tbody id="tBody"><tr><td colspan="8" class="empty">Loading…</td></tr></tbody></table></div>
       <div class="foot"><span id="tRange"></span><button class="sm" id="tMore" hidden>Show more</button></div>
     </div>
   </section>
@@ -138,6 +150,6 @@
 
 
 <script src="/assets/app.js"></script>
-<script src="/assets/dashboard.js"></script>
+<script src="/assets/dashboard.js?v=2"></script>
 </body>
 </html>

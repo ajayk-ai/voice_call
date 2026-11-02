@@ -17,8 +17,9 @@ let vendors = null;  // GET /vendor-numbers
 const V = { q: "", filter: "all", page: 0 };
 let ctl = null;  // GET /control
 const C = { scope: "selected", picks: new Set(), q: "", overdue: true, ready: false, dirty: false, mode: "dry", sched: "interval", formReady: false };
-const T = { list: null, q: "", level: "any", limit: 50 };
+const T = { list: null, q: "", level: "any", limit: 50, pg: "", buyer: "", age: "", call: "", delivery: "" };
 const L = { list: null, insights: null };
+let stopped = false;  // the emergency stop is on
 
 // ---------- tabs ----------
 function showTab(t) {
@@ -38,6 +39,28 @@ function refresh() {
   else loadCalls();
 }
 document.querySelectorAll("[data-tab]").forEach((b) => b.onclick = () => showTab(b.dataset.tab));
+
+// ---------- emergency stop ----------
+function renderEmergency(c) {
+  stopped = c.emergency_stop;
+  $("eBanner").hidden = !stopped; $("eStop").hidden = stopped;
+  if (stopped) $("eText").textContent = `Emergency stop is on${c.emergency_stop_by ? ` (pressed by ${c.emergency_stop_by}${c.emergency_stop_at ? `, ${fmtDateTime(c.emergency_stop_at)}` : ""})` : ""}. No messages or calls go out until it is cleared.`;
+}
+const checkEmergency = () => api("/control").then(renderEmergency).catch(() => {});
+$("eStop").onclick = async () => {
+  if (!(await ask("Emergency stop?", "The run in progress stops, ringing and connected calls are hung up, and nothing goes out until someone clears this.", "Stop everything"))) return;
+  try {
+    const c = await send("/control/emergency-stop");
+    renderEmergency(c); if (ctl) { ctl = { ...ctl, ...c }; renderControl(); }
+    toast(`Stopped. Calls hung up: ${c.calls_ended}${c.calls_not_ended ? `, could not end: ${c.calls_not_ended} (they may already be over)` : ""}`, Boolean(c.calls_not_ended));
+  } catch (e) { toast(`Emergency stop FAILED: ${e.message}`, true); }
+};
+$("eClear").onclick = async () => {
+  if (!(await ask("Clear the emergency stop?", "Runs are allowed again. The automatic follow-up stays off until you press Start.", "Clear"))) return;
+  try { const c = await send("/control/emergency-clear"); renderEmergency(c); if (ctl) { ctl = { ...ctl, ...c }; renderControl(); } toast("Emergency stop cleared"); }
+  catch (e) { toast(e.message, true); }
+};
+if (session) { checkEmergency(); setInterval(() => { if (!document.hidden) checkEmergency(); }, 15000); }
 
 // ---------- 1 Vendor Master ----------
 const parts = (s) => String(s || "").split(/[,;/]/).map((x) => x.trim()).filter(Boolean);
@@ -203,7 +226,7 @@ function renderControl() {
   const c = ctl;
   $("rState").className = "state" + (c.running ? " on" : "");
   const when = c.schedule_type === "daily" ? `every day at ${esc(c.daily_time)}` : `every ${everyText(c.every_minutes)}`;
-  $("rState").innerHTML = `<i></i><div><b>${c.running ? "Running" : "Stopped"}${c.busy ? " · run in progress" : ""}</b><span>${c.running
+  $("rState").innerHTML = `<i></i><div><b>${c.emergency_stop ? "Emergency stop" : c.running ? "Running" : "Stopped"}${c.busy ? " · run in progress" : ""}</b><span>${c.emergency_stop ? "Clear the emergency stop before starting again." : c.running
     ? `${c.mode === "live" ? "Live" : "Trial"}, ${when}${c.next_run ? `. Next ${inFuture(c.next_run)}` : ""}` : "Nothing runs until you press Start."}</span></div>`;
   if (!C.formReady) {
     C.formReady = true; C.mode = c.mode === "live" ? "live" : "dry"; C.sched = c.schedule_type === "daily" ? "daily" : "interval";
@@ -214,10 +237,10 @@ function renderControl() {
   $("rEvery").hidden = C.sched !== "interval"; $("rDaily").hidden = C.sched !== "daily";
   $("rModeHint").textContent = C.mode === "dry" ? "Trial: nothing is sent and vendors do not move to the next scenario." : "Live: real WhatsApp messages, calls and meeting invites.";
   $("rStart").textContent = c.running ? "Save changes" : "Start follow-up";
-  $("rStop").disabled = !c.running; $("rNow").disabled = c.busy;
-  const runText = (r) => { if (r.error) return r.error.slice(0, 90); const s = r.summary; return s ? `${num(s.vendor_groups)} vendor${s.vendor_groups === 1 ? "" : "s"} alerted, ${num(s.messages)} message${s.messages === 1 ? "" : "s"}` : ""; };
+  $("rStop").disabled = !c.running; $("rNow").disabled = $("rRestart").disabled = c.busy || c.emergency_stop; $("rStart").disabled = c.emergency_stop;
+  const runText = (r) => { if (r.error) return r.error.slice(0, 90); const s = r.summary; return s ? `${s.stopped ? "Emergency stop. " : ""}${num(s.vendor_groups)} vendor${s.vendor_groups === 1 ? "" : "s"} alerted, ${num(s.messages)} message${s.messages === 1 ? "" : "s"}` : ""; };
   $("rRuns").innerHTML = c.runs.length ? c.runs.slice(0, 5).map((r) => `<tr><td class="nowrap">${fmtDateTime(r.started_at)}<div class="sub">${r.mode === "live" ? "Live" : "Trial"}</div></td>
-      <td><span class="pill ${r.status === "ok" ? "ok" : r.status === "failed" ? "bad" : "info"}">${r.status === "ok" ? "Done" : r.status === "failed" ? "Failed" : "Running"}</span><div class="sub">${esc(runText(r))}</div></td></tr>`).join("")
+      <td><span class="pill ${r.status === "ok" ? "ok" : r.status === "failed" ? "bad" : r.status === "stopped" ? "warn" : "info"}">${r.status === "ok" ? "Done" : r.status === "failed" ? "Failed" : r.status === "stopped" ? "Stopped" : "Running"}</span><div class="sub">${esc(runText(r))}</div></td></tr>`).join("")
     : `<tr><td class="empty">No runs yet.</td></tr>`;
 }
 function renderPicker() {
@@ -263,19 +286,33 @@ const chosenCodes = () => (C.scope === "selected" ? [...C.picks] : []);
 const noVendors = () => C.scope === "selected" && !C.picks.size;
 const who = () => (C.scope === "all" ? "all vendors" : `${num(C.picks.size)} vendor${C.picks.size === 1 ? "" : "s"}`);
 const needsLiveConfirm = () => C.mode === "live" && !(ctl.running && ctl.mode === "live" && C.scope === ctl.scope);
+const formMinutes = () => Math.round(Number($("rN").value) * Number($("rUnit").value));
+const badRepeat = () => (C.sched === "interval" && !(formMinutes() >= 1 && formMinutes() <= ctl.max_every_minutes) ? `Repeat must be between 1 minute and ${Math.round(ctl.max_every_minutes / 1440)} days.` : "");
+const startBody = (live) => ({ schedule_type: C.sched, every_minutes: C.sched === "interval" ? formMinutes() : null, daily_time: $("rTime").value || null, mode: C.mode,
+  confirm: live ? "LIVE" : null, scope: C.scope, codes: chosenCodes(), confirm_scope: C.scope === "all" ? "ALL" : null });
 $("rStart").onclick = async () => {
   $("rErr").hidden = true;
   if (noVendors()) return rFail("Tick at least one vendor, or choose All vendors.");
-  const mins = Math.round(Number($("rN").value) * Number($("rUnit").value));
-  if (C.sched === "interval" && !(mins >= 1 && mins <= ctl.max_every_minutes)) return rFail(`Repeat must be between 1 minute and ${Math.round(ctl.max_every_minutes / 1440)} days.`);
+  if (badRepeat()) return rFail(badRepeat());
   const live = needsLiveConfirm();
   if (live && !(await ask("Start live follow-up?", `Real WhatsApp messages, calls and meeting invites will go out for ${who()}.`, "Yes, start live"))) return;
   $("rStart").disabled = true;
   try {
-    ctl = { ...ctl, ...(await send("/control/start", { schedule_type: C.sched, every_minutes: C.sched === "interval" ? mins : null, daily_time: $("rTime").value || null, mode: C.mode,
-      confirm: live ? "LIVE" : null, scope: C.scope, codes: chosenCodes(), confirm_scope: C.scope === "all" ? "ALL" : null })) };
+    ctl = { ...ctl, ...(await send("/control/start", startBody(live))) };
     C.dirty = false; renderControl(); toast(`Follow-up saved for ${who()}`); loadVendors(); setTimeout(loadControl, 3000);
-  } catch (e) { rFail(e.message); } finally { $("rStart").disabled = false; }
+  } catch (e) { rFail(e.message); } finally { $("rStart").disabled = stopped; }
+};
+$("rRestart").onclick = async () => {
+  $("rErr").hidden = true;
+  if (noVendors()) return rFail("Tick at least one vendor, or choose All vendors.");
+  if (badRepeat()) return rFail(badRepeat());
+  const live = C.mode === "live";
+  if (!(await ask("Restart from Scenario 1?", `Every vendor's progress is wiped and starts again from Scenario 1, whatever scenario it reached. The follow-up then runs at once for ${who()}${live ? ": real WhatsApp messages go out now" : " as a trial, so nothing is sent"}. Past messages and calls stay in the history.`, "Yes, restart"))) return;
+  $("rRestart").disabled = true;
+  try {
+    const c = await send("/control/restart", { ...startBody(live), confirm_restart: "RESTART" });
+    ctl = { ...ctl, ...c }; C.dirty = false; T.list = null; renderControl(); toast(`Restarted: ${num(c.lines_reset)} lines back to Scenario 1`); loadVendors(); setTimeout(loadControl, 1500);
+  } catch (e) { rFail(e.message); loadControl(); }
 };
 $("rStop").onclick = async () => {
   if (!(await ask("Stop the follow-up?", "No more automatic runs will start. A run already going will finish.", "Stop"))) return;
@@ -303,31 +340,71 @@ function steps(level, failed) {
 }
 async function loadTrace() {
   try { T.list = await api("/trace"); if (!ctl) ctl = await api("/control"); } catch (e) {
-    $("tBody").innerHTML = `<tr><td colspan="5" class="empty"><b>Could not load</b>${esc(e.message)}</td></tr>`; return;
+    $("tBody").innerHTML = `<tr><td colspan="8" class="empty"><b>Could not load</b>${esc(e.message)}</td></tr>`; return;
   }
   renderTrace();
 }
+// One vendor can supply several purchasing groups: with a group chosen, the numbers are that group's lines only
+const tLines = (v) => (T.pg ? v.by_pg[T.pg]?.lines ?? 0 : v.pending_lines);
+const tDays = (v) => (T.pg ? v.by_pg[T.pg]?.max_od ?? 0 : v.max_od);
+const tPos = (v) => (T.pg ? v.by_pg[T.pg]?.pos ?? 0 : v.po_count);
+const callKey = (v) => v.call?.status || "none";
+function tFiltered() {
+  const q = T.q.trim().toLowerCase();
+  const [lo, hi] = T.age ? T.age.split("-").map((n) => (n ? Number(n) : Infinity)) : [];
+  return T.list.filter((v) => (!T.pg || T.pg in v.by_pg) && (!T.buyer || v.buyers.includes(T.buyer))
+    && (!T.age || (tDays(v) >= lo && tDays(v) <= hi)) && (!T.call || callKey(v) === T.call)
+    && (!T.delivery || v.problem) && (!q || (v.name + " " + v.code).toLowerCase().includes(q)));
+}
+function traceOptions(id, label, values, key) {
+  const known = [...new Set(values)].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  if (!known.includes(T[key])) T[key] = "";
+  $(id).innerHTML = `<option value="">${label}</option>` + known.map((x) => `<option value="${esc(x)}">${esc(x)}</option>`).join("");
+  $(id).value = T[key];
+}
 function renderTrace() {
   const all = T.list;
+  traceOptions("tPg", "All purchasing groups", all.flatMap((v) => Object.keys(v.by_pg)), "pg");
+  traceOptions("tBuyer", "All buyers", all.flatMap((v) => v.buyers), "buyer");
+  const filtered = tFiltered();
   $("tSub").textContent = `Only the vendors you chose in Vendor Control${ctl?.synced_at ? ` · PO Master updated ${fmtDateTime(ctl.synced_at)}` : ""}`;
-  const by = (lv) => all.filter((v) => (lv === "none" ? v.level == null : v.level === lv)).length;
-  const tiles = [["any", "Your vendors", all.length], ["none", "Not started", by("none")], [0, "Scenario 1", by(0)], [1, "Scenario 2", by(1)], [2, "Scenario 3", by(2)], [3, "Scenario 4", by(3)]];
+  const by = (lv) => filtered.filter((v) => (lv === "none" ? v.level == null : v.level === lv)).length;
+  const tiles = [["any", "Your vendors", filtered.length], ["none", "Not started", by("none")], [0, "Scenario 1", by(0)], [1, "Scenario 2", by(1)], [2, "Scenario 3", by(2)], [3, "Scenario 4", by(3)]];
   $("tTiles").innerHTML = tiles.map(([k, l, c]) => `<button class="tile" data-tl="${k}" aria-pressed="${String(T.level) === String(k)}"><span>${l}</span><b>${num(c)}</b></button>`).join("");
-  const q = T.q.trim().toLowerCase();
-  const rows = all.filter((v) => (T.level === "any" || (T.level === "none" ? v.level == null : v.level === T.level)) && (!q || (v.name + " " + v.code).toLowerCase().includes(q)))
-    .sort((a, b) => ((b.level ?? -1) - (a.level ?? -1)) || b.pending_lines - a.pending_lines);
+  const rows = filtered.filter((v) => T.level === "any" || (T.level === "none" ? v.level == null : v.level === T.level))
+    .sort((a, b) => ((b.level ?? -1) - (a.level ?? -1)) || tLines(b) - tLines(a));
+  T.rows = rows;
   const shown = rows.slice(0, T.limit);
+  $("tClear").hidden = !(T.q || T.pg || T.buyer || T.age || T.call || T.delivery || T.level !== "any");
+  const groups = (v) => { const g = Object.keys(v.by_pg); return g.length > 3 ? `${g.slice(0, 3).join(", ")} +${g.length - 3}` : g.join(", "); };
+  const cycle = (v) => (v.restart_on ? `Back to Scenario 1 on ${fmtDay(v.restart_on)}` : v.cycle_day ? `Day ${v.cycle_day} of this cycle` : "");
+  const lastCall = (v) => (v.call ? `${callPill(v.call)}<div class="sub">${[ago(v.call.placed_at), v.call.analysis?.earliest_commitment && "promised " + fmtDay(v.call.analysis.earliest_commitment), topReason(v.call.analysis)].filter(Boolean).map(esc).join(" · ")}</div>` : `<span class="muted">Not called</span>`);
   $("tBody").innerHTML = shown.length ? shown.map((v) => `<tr class="click" tabindex="0" data-trace="${esc(v.code)}"><td><div class="name">${esc(v.name)}</div><div class="sub">${esc(v.code)}</div></td>
-      <td class="r">${num(v.pending_lines)}</td><td class="r">${v.max_od ? num(v.max_od) : "—"}</td><td>${steps(v.level, v.problem)}${v.problem ? `<div class="sub" style="color:var(--bad)">Not delivered: ${esc(v.problem)}</div>` : ""}</td>
-      <td class="nowrap">${v.last_alert_at ? ago(v.last_alert_at) : `<span class="muted">Nothing sent yet</span>`}</td></tr>`).join("")
-    : all.length ? `<tr><td colspan="5" class="empty"><b>No vendors here</b>Try another filter.</td></tr>`
-      : `<tr><td colspan="5" class="empty"><b>No vendors chosen yet</b>Pick the vendors to follow up, then come back here.<br><button class="primary" onclick="showTab('control')">Go to Vendor Control</button></td></tr>`;
+      <td title="${esc(Object.keys(v.by_pg).join(", "))}">${esc(groups(v)) || `<span class="muted">—</span>`}${v.buyers.length ? `<div class="sub">${esc(v.buyers.join(", "))}</div>` : ""}</td>
+      <td class="r">${num(tLines(v))}</td><td class="r">${num(tPos(v))}</td><td class="r">${tDays(v) ? num(tDays(v)) : "—"}</td><td>${steps(v.level, v.problem)}${cycle(v) ? `<div class="sub">${esc(cycle(v))}</div>` : ""}${v.problem ? `<div class="sub" style="color:var(--bad)">Not delivered: ${esc(v.problem)}</div>` : ""}</td>
+      <td>${lastCall(v)}</td><td class="nowrap">${v.last_alert_at ? ago(v.last_alert_at) : `<span class="muted">Nothing sent yet</span>`}</td></tr>`).join("")
+    : all.length ? `<tr><td colspan="8" class="empty"><b>No vendors here</b>Try another filter.</td></tr>`
+      : `<tr><td colspan="8" class="empty"><b>No vendors chosen yet</b>Pick the vendors to follow up, then come back here.<br><button class="primary" onclick="showTab('control')">Go to Vendor Control</button></td></tr>`;
   $("tRange").textContent = rows.length ? `${num(shown.length)} of ${num(rows.length)} vendors` : "";
   $("tMore").hidden = rows.length <= shown.length;
 }
 $("tTiles").onclick = (e) => { const b = e.target.closest("[data-tl]"); if (b) { const k = b.dataset.tl; T.level = /^\d$/.test(k) ? Number(k) : k; T.limit = 50; renderTrace(); } };
 $("tQ").oninput = (e) => { T.q = e.target.value; if (T.list) renderTrace(); };
 $("tMore").onclick = () => { T.limit += 100; renderTrace(); };
+for (const [id, key] of [["tPg", "pg"], ["tBuyer", "buyer"], ["tAge", "age"], ["tCall", "call"], ["tDelivery", "delivery"]]) {
+  $(id).onchange = (e) => { T[key] = e.target.value; T.limit = 50; if (T.list) renderTrace(); };
+}
+$("tClear").onclick = () => {
+  Object.assign(T, { q: "", level: "any", limit: 50, pg: "", buyer: "", age: "", call: "", delivery: "" });
+  for (const id of ["tQ", "tAge", "tCall", "tDelivery"]) $(id).value = "";
+  renderTrace();
+};
+$("tCsv").onclick = () => {
+  if (!T.rows) return;
+  saveCsv("trace.csv", [["Vendor code", "Vendor", "Purchasing groups", "Buyers", "Overdue lines", "POs", "Max days late", "Scenario", "Cycle day", "Restarts on", "Last call", "Call time", "Promised date", "Delay reason", "Last action", "Not delivered"],
+    ...T.rows.map((v) => [v.code, v.name, Object.keys(v.by_pg).join(" "), v.buyers.join(" "), tLines(v), tPos(v), tDays(v), v.level == null ? "Not started" : SCENARIOS[v.level], v.cycle_day ?? "", v.restart_on ?? "",
+      v.call?.status?.replace(/_/g, " ") ?? "Not called", v.call ? fmtDateTime(v.call.placed_at) : "", v.call?.analysis?.earliest_commitment ?? "", topReason(v.call?.analysis), v.last_alert_at ? fmtDateTime(v.last_alert_at) : "", v.problem])]);
+};
 $("tBody").onclick = (e) => { const r = e.target.closest("[data-trace]"); if (r) openTrace(r.dataset.trace); };
 $("tBody").onkeydown = (e) => { const r = e.target.closest("[data-trace]"); if (r && e.key === "Enter") openTrace(r.dataset.trace); };
 
@@ -345,11 +422,14 @@ async function openTrace(code) {
     return `<li class="${failed ? "failed" : s.state === "done" ? "done" : s.state === "next" ? "next" : ""}"><span class="dot">${s.level + 1}</span><div>
       <div class="t1">${esc(SCENARIOS[s.level])} · ${esc(STEP_TEXT[s.level][0])}</div><div class="t2">${esc(STEP_TEXT[s.level][1])} · ${esc(when)}</div>${msgs ? `<ul>${msgs}</ul>` : ""}${callBtns}</div></li>`;
   };
-  openDrawer(t.name, `Vendor ${code} · ${num(t.pending_lines)} overdue lines`, `
+  const lines = t.lines.filter((l) => !/CLEARED/i.test(l.status) && (!T.pg || l.pg === T.pg)).sort((a, b) => (Number(b.od) || 0) - (Number(a.od) || 0));
+  const pgs = Object.entries(t.by_pg).map(([g, x]) => `${g} (${num(x.lines)})`).join(", ");
+  openDrawer(t.name, `Vendor ${code} · ${num(t.pending_lines)} overdue lines · ${num(t.po_count)} POs`, `
     ${t.next_note ? `<div class="note"><span>${esc(t.next_note)}</span></div>` : ""}
+    <section><h3>This cycle</h3><dl class="facts"><div><dt>Cycle</dt><dd>${t.cycle_day ? `No. ${num(t.cycle_number)}, day ${t.cycle_day}` : "Not started"}</dd></div><div><dt>Started</dt><dd>${t.cycle_start ? esc(fmtDay(t.cycle_start)) : "—"}</dd></div><div><dt>Back to Scenario 1</dt><dd>${t.restart_on ? esc(fmtDay(t.restart_on)) : `${t.cycle_days} days after Scenario 4`}</dd></div><div class="wide"><dt>Purchasing groups (overdue lines)</dt><dd>${esc(pgs) || "—"}</dd></div></dl></section>
     <section><ol class="timeline">${t.steps.map(stepItem).join("")}</ol></section>
     <section><h3>Contacts used</h3><dl class="facts"><div><dt>Scenario 1</dt><dd>${esc(c.scenario1 || "—")}</dd></div><div><dt>Scenario 2</dt><dd>${esc(c.scenario2 || "—")}</dd></div><div><dt>Scenario 3 call</dt><dd>${esc(c.scenario3 || "—")}</dd></div><div><dt>Buyer</dt><dd>${esc(c.buyer_email || c.buyer_mobile || "—")}</dd></div></dl></section>
-    ${t.lines.length ? `<section><h3>Overdue lines</h3><div class="table-wrap"><table class="t"><thead><tr><th>PO</th><th>Material</th><th class="r">Days late</th></tr></thead><tbody>${t.lines.slice(0, 30).map((l) => `<tr><td class="mono">${esc(l.po)}</td><td>${esc(l.desc)}</td><td class="r">${esc(l.od)}</td></tr>`).join("")}</tbody></table></div>${t.lines.length > 30 ? `<p class="hint">First 30 of ${num(t.lines.length)} lines.</p>` : ""}</section>` : ""}`);
+    ${lines.length ? `<section><h3>Overdue lines${T.pg ? ` · purchasing group ${esc(T.pg)}` : ""}</h3><div class="table-wrap"><table class="t"><thead><tr><th>PO</th><th>Material</th><th>Group</th><th class="r">Pending</th><th class="r">Days late</th><th>Scenario</th></tr></thead><tbody>${lines.slice(0, 30).map((l) => `<tr><td class="mono">${esc(l.po)}</td><td>${esc(l.desc)}</td><td>${esc(l.pg)}</td><td class="r nowrap">${esc(l.pending)}</td><td class="r">${esc(l.od)}</td><td class="nowrap">${l.level == null ? `<span class="muted">Not started</span>` : esc(SCENARIOS[l.level])}</td></tr>`).join("")}</tbody></table></div>${lines.length > 30 ? `<p class="hint">First 30 of ${num(lines.length)} lines, latest first.</p>` : ""}</section>` : ""}`);
 }
 $("dBody").addEventListener("click", (e) => { const b = e.target.closest("[data-call]"); if (b) openCall(b.dataset.call); });
 

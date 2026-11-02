@@ -5,6 +5,7 @@ import logging
 import gspread
 from gspread.utils import ValueInputOption, rowcol_to_a1
 
+from backend.core.env import env_int
 from backend.core.google_auth import GoogleNotConfigured, delegated_credentials
 
 log = logging.getLogger("po_followup.sheets")
@@ -33,7 +34,7 @@ def records_from_values(values: list[list]) -> list[dict]:
     return out
 
 
-SHEETS_TIMEOUT_SECONDS = 60
+SHEETS_TIMEOUT_SECONDS = env_int("SHEETS_TIMEOUT_SECONDS", 60)
 
 
 class PoSheet:

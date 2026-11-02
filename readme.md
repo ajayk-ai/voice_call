@@ -16,6 +16,12 @@ Each run is one overdue check of the PO Master, for the vendors chosen in Vendor
 
 A line that is no longer overdue is cleared and starts again at Scenario 1 if it becomes overdue later.
 
+The red **Emergency stop** button, on every tab, stops everything at once: automatic runs switch off, the run in progress ends before its next message, and ringing or connected calls are hung up. It stays on until someone clears it, and the follow-up then stays off until someone presses Start.
+
+7 days (`FOLLOWUP_CYCLE_DAYS`) after a vendor reaches Scenario 4, all its open lines go back to Scenario 1 automatically. A vendor that has not reached Scenario 4 keeps climbing. Once a vendor has spoken on a Scenario 3 call, the voice agent does not call it again until it goes back to Scenario 1.
+
+**Restart from Scenario 1** (Vendor Control) does this for every vendor at once and then runs the follow-up immediately. Earlier messages and calls stop counting but stay in the history.
+
 ## Using it
 
 The app opens at `/`: choose **SCM User** or **Admin** and sign in.
@@ -26,7 +32,7 @@ The app opens at `/`: choose **SCM User** or **Admin** and sign in.
 |---|---|
 | 1 Vendor Master | Add vendors one at a time or upload a CSV (checked first; nothing is saved if a row is wrong). Numbers are 10-digit Indian mobiles. Scenario 4 holds the meeting e-mail ids. |
 | 2 Vendor Control | Tick particular vendors or choose All vendors, pick Live or Trial, set the repeat (default 1 day) or a daily time, and Start. Also Stop, Run once now and recent runs. |
-| 3 Trace | Only the chosen vendors: the scenario each is at, failed deliveries, and the full timeline on click. |
+| 3 Trace | Only the chosen vendors: the scenario each is at and when it goes back to Scenario 1, purchasing groups, last call, failed deliveries, and the full timeline on click. Filter by purchasing group, buyer, days late, call result or delivery, and download the filtered list. |
 | 4 Call Results | Scenario 3 calls: transcript, delay reasons, committed dates, CSV download. |
 
 **Admin** (`/admin`), user id `ADMIN_USERNAME` and password `APP_PASSWORD`

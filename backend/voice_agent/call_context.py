@@ -13,6 +13,7 @@ import json
 import time
 import zlib
 
+from backend.core.env import env_int
 from backend.voice_agent.config import TELER_API_KEY
 from backend.voice_agent.prompts import greeting, po_prompt
 
@@ -20,7 +21,7 @@ from backend.voice_agent.prompts import greeting, po_prompt
 VERSION = "v1"
 MAX_AGE_SECONDS = 60 * 60  # a call is answered within minutes
 MAX_TOKEN_CHARS = 4000
-MAX_LINES = 10  # keeps the flow URL short; the agent goes through the worst lines first
+MAX_LINES = env_int("CALL_MAX_PO_LINES", 10)  # keeps the flow URL short; the agent goes through the worst lines first
 LINE_FIELDS = ("po", "item", "desc", "due", "pending", "uom", "od")
 
 

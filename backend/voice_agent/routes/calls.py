@@ -52,6 +52,9 @@ async def flow(request: Request):
     """FreJun calls this when the call is answered. Returns a stream action to our websocket."""
     with suppress(Exception):
         log.info("Call answered: %s", await request.json())
+    if await call_log.emergency_stop_on():  # a call that was already ringing when the stop was pressed
+        log.warning("Call answered during the emergency stop: hanging up")
+        return JSONResponse({"action": "hangup"})
     ws_base = public_url(request).replace("https://", "wss://", 1).replace("http://", "ws://", 1)
     # The call ticket and vendor script travel on to /media (see call_context)
     params = {k: request.query_params[k] for k in ("ticket", "ctx") if request.query_params.get(k)}

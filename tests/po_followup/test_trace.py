@@ -84,3 +84,39 @@ def test_a_vendor_trace_opens_with_the_real_settings(monkeypatch):
     monkeypatch.setattr(trace.service, "recent_auto_runs", lambda limit=10: [])
     t = trace.vendor_trace("100019")
     assert t["pending_lines"] == 1 and t["steps"][0]["state"] == "next"
+
+
+def test_a_vendor_in_several_purchasing_groups_counts_lines_per_group():
+    master = [
+        {"PO No": "1", "PO Item No": "10", "Vendor Code": "7", "OD Days": "5", "Purchasing Group": "256", "Buyer Mail ID": "ravi@bull.com"},
+        {"PO No": "1", "PO Item No": "20", "Vendor Code": "7", "OD Days": "9", "Purchasing Group": "256", "Buyer Mail ID": "ravi@bull.com"},
+        {"PO No": "2", "PO Item No": "10", "Vendor Code": "7", "OD Days": "3", "Purchasing Group": "210", "Buyer Mail ID": "#N/A"},
+    ]
+    g = trace.line_groups(trace.index_vendors(master)["7"])
+    assert g["by_pg"] == {"256": {"lines": 2, "max_od": 9, "pos": 1}, "210": {"lines": 1, "max_od": 3, "pos": 1}}
+    assert g["buyers"] == ["ravi"] and g["po_count"] == 2
+
+
+def test_cycle_day_and_restart():
+    start = NOW.date() - timedelta(days=2)
+    c = trace.cycle_info(start, None, 7, NOW.date())
+    assert c["cycle_day"] == 3 and c["restart_on"] is None  # not known before Scenario 4
+    assert trace.cycle_info(start, NOW.date(), 7, NOW.date())["restart_on"] == (NOW.date() + timedelta(days=7)).isoformat()
+    assert trace.cycle_info(None, None, 7, NOW.date())["cycle_day"] is None
+
+
+def test_history_before_a_restart_is_left_out():
+    rows = [{"Timestamp": "2026-11-02 09:00:00"}, {"Timestamp": "2026-11-02 11:00:00"}]
+    assert trace.since_restart(rows, "2026-11-02 10:00:00") == rows[1:] and trace.since_restart(rows, "") == rows
+
+
+def test_the_timeline_shows_only_the_current_cycle():
+    old = log(1, NOW, "FAILED")
+    rows = [old, {"Status": "CYCLE_RESET", "Escalation Level": "-"}, log(0, NOW)]
+    assert trace.current_cycle(rows) == [rows[2]] and trace.current_cycle([old]) == [old]
+
+
+def test_the_note_says_when_a_finished_vendor_starts_again():
+    steps = trace.journey(3, NOW, [], PERIOD, NOW)
+    note = trace.next_step_note(steps, 4, True, {"vendor_scope": "selected"}, None, NOW.date())
+    assert "09-Oct-2026" in note and "start again from Scenario 1" in note

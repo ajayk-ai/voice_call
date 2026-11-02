@@ -411,6 +411,11 @@ def get_settings() -> dict:
         return {r["key"]: r["value"] for r in conn.execute("SELECT key, value FROM followup.settings").fetchall()}
 
 
+def emergency_on() -> bool:
+    """The emergency stop is on: nothing may be sent or called until a person clears it."""
+    return bool(get_settings().get("emergency_stop"))
+
+
 def save_settings(values: dict) -> None:
     with connect() as conn, conn.transaction():
         for k, v in values.items():
@@ -418,6 +423,17 @@ def save_settings(values: dict) -> None:
                 "INSERT INTO followup.settings (key, value) VALUES (%s, %s) "
                 "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()",
                 (k, json.dumps(v)))
+
+
+def fresh_start(at: str) -> int:
+    """Every vendor starts again from Scenario 1: all open lines are closed and everything before `at` stops counting.
+    The rows stay as history. One transaction, so the two can never disagree. Returns the lines closed."""
+    with connect() as conn, conn.transaction():
+        closed = conn.execute("UPDATE followup.line_tracker SET status = 'CLEARED - RESTART', cleared_date = %s, updated_at = %s "
+                              "WHERE status IS NULL OR status NOT ILIKE '%%CLEARED%%'", (at[:10], at)).rowcount
+        conn.execute("INSERT INTO followup.settings (key, value) VALUES ('fresh_start_at', %s) "
+                     "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()", (json.dumps(at),))
+    return closed
 
 
 # ---------- vendor e-mail ids (Scenario 4) ----------

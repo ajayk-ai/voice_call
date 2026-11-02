@@ -11,7 +11,7 @@ import httpx
 from google.auth.exceptions import RefreshError
 from google.auth.transport.requests import Request
 
-from backend.core.env import TIMEZONE
+from backend.core.env import TIMEZONE, env_int
 from backend.core.google_auth import configured as delegation_configured, delegated_credentials
 from backend.po_followup.config import Settings
 from backend.po_followup.domain.escalation import indian_mobile
@@ -35,7 +35,7 @@ SAMPLE_ALERT = {
     "nextLevel": 0, "vendorName": "Sample Vendor", "vendorCode": "TEST", "overdueLines": 1, "poCount": 1, "daysOverdue": 7,
     "lineSummary": "PO 4500000001 / 10: Sample part, 100 NOS pending, due 1 week ago",
 }
-CHECK_SECONDS = 10
+CHECK_SECONDS = env_int("SYSTEM_CHECK_TIMEOUT_SECONDS", 10)
 
 
 def _number(raw: str) -> str:

@@ -6,7 +6,8 @@
     POST /dashboard/api/vendor-numbers/bulk       many vendors from an upload, checked first
     PUT  /dashboard/api/vendor-selection          which vendors the follow-up runs for
     GET  /dashboard/api/control                   is the follow-up running, its schedule, next run, recent runs
-    POST /dashboard/api/control/start|stop|run-now
+    POST /dashboard/api/control/start|stop|run-now|restart
+    POST /dashboard/api/control/emergency-stop|emergency-clear
     GET  /dashboard/api/trace[/{code}]            the chosen vendors' scenario, one vendor's full trace
     GET  /dashboard/api/calls[/insights|/{key}]   Scenario 3 calls: transcript, delay reasons, committed dates
 """
@@ -21,7 +22,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from backend.core import frontend
 from backend.po_followup.api import admin
 from backend.po_followup.models.dashboard import (
-    BulkResult, BulkUpdate, ControlStart, RunNow, VendorNumbers, VendorNumbersList, VendorNumbersUpdate, VendorSelection,
+    BulkResult, BulkUpdate, ControlRestart, ControlStart, RunNow, VendorNumbers, VendorNumbersList, VendorNumbersUpdate, VendorSelection,
 )
 from backend.po_followup.services import calls, control, trace, users, vendor_numbers
 
@@ -111,6 +112,22 @@ async def control_start(body: ControlStart, user: dict = Depends(require_user)):
 @router.post("/control/stop", summary="Stop the automatic follow-up")
 async def control_stop(user: dict = Depends(require_user)):
     return await admin.call(control.stop, user["username"])
+
+
+@router.post("/control/restart", status_code=202, summary="Every vendor back to Scenario 1, then run")
+async def control_restart(body: ControlRestart, user: dict = Depends(require_user)):
+    return await admin.call(control.restart, body.schedule_type, body.every_minutes, body.daily_time, body.mode, body.confirm,
+                            body.scope, body.codes, body.confirm_scope, body.confirm_restart, user["username"])
+
+
+@router.post("/control/emergency-stop", summary="Stop everything now, including the run and calls in progress")
+async def control_emergency_stop(user: dict = Depends(require_user)):
+    return await admin.call(control.emergency_stop, user["username"])
+
+
+@router.post("/control/emergency-clear", summary="Allow runs again after an emergency stop")
+async def control_emergency_clear(user: dict = Depends(require_user)):
+    return await admin.call(control.emergency_clear, user["username"])
 
 
 @router.post("/control/run-now", status_code=202, summary="Run the follow-up once, now")

@@ -11,7 +11,8 @@ from backend.core.tracing import mask_phones, traceable
 
 from backend.po_followup.config import Settings
 from backend.po_followup.domain.escalation import (
-    apply_phone_master, build_groups, detect_cleared, is_valid_mobile, normalize_mobile, select_alerts, txt,
+    apply_phone_master, build_groups, cycle_resets, cycle_starts, detect_cleared, is_valid_mobile, normalize_mobile,
+    parse_date, select_alerts, txt,
 )
 from backend.po_followup.integrations.agent_call import call_script, script_lines
 from backend.po_followup.domain.messages import call_task_row, log_row, meeting_task_row, message_for, recipients_for, tracker_rows
@@ -50,25 +51,29 @@ class RunReport:
     run_date: str
     alerts: list[dict] = field(default_factory=list)  # one entry per recipient message
     cleared_lines: int = 0
+    cycle_resets: int = 0  # vendors sent back to Scenario 1 by this run
     vendor_groups: int = 0
     sheet_writes: list[str] = field(default_factory=list)
+    stopped: bool = False  # the emergency stop ended this run early
     log_rows: list[dict] = field(default_factory=list)
     check: dict = field(default_factory=dict)  # this run's overdue check: period, lines per confirmed scenario
 
 
 class DailyRun:
     def __init__(self, settings: Settings, sheet, sender, ctx: RunContext, sleep=time.sleep,
-                 caller=None, meet=None):
+                 caller=None, meet=None, should_stop=None):
         self.s = settings
         self.sheet = sheet
         self.sender = sender
         self.caller = caller  # Scenario 3 agent call (agent_call.AgentCaller); None = no call
         self.meet = meet  # Day 3 Google Meet invite (meet.MeetScheduler); None = task row only
+        self.should_stop = should_stop  # asked before every send; True ends the run there
         self.ctx = ctx
         self.dry = settings.dry_run
         self.sleep = sleep
         self.report = RunReport(ctx.run_iso)
         self.logs: list[dict] = []  # Alert_Log rows not written yet
+        self.cycle_starts: dict = {}  # vendor code -> the day its current cycle began
         self._sent_any_real = False
 
     # ----- reads and writes -----
@@ -107,7 +112,8 @@ class DailyRun:
 
     def _execute(self) -> None:
         ctx, s = self.ctx, self.s
-        today_log = [r for r in self._read("Alert_Log", required=False) if txt(r.get("Alert Date")) == ctx.run_iso]
+        today_log = [r for r in self._read("Alert_Log", required=False)
+                     if txt(r.get("Alert Date")) == ctx.run_iso and txt(r.get("Timestamp")) >= s.fresh_start]
         tracker = self._read("Line_Tracker", required=False)
         phone_master = self._read("Phone_Master")
         try:
@@ -121,8 +127,6 @@ class DailyRun:
             ))
             return
 
-        line_streaks = self._check_overdue(master)
-
         cleared = detect_cleared(master, tracker, ctx.run_date, ctx.run_ts)
         self.report.cleared_lines = len(cleared)
         if cleared and not self.dry:
@@ -130,6 +134,9 @@ class DailyRun:
                 self._write("upsert_rows", "Line_Tracker", cleared, key="Line Key")
             except Exception as e:
                 log.error("Could not mark %d line(s) CLEARED: %s", len(cleared), e)
+        tracker = self._reset_cycles(_merged(tracker, cleared))
+        self.cycle_starts = cycle_starts(tracker)
+        line_streaks = self._check_overdue(master, tracker)
 
         groups = build_groups(master, tracker, ctx.now, s.max_lines_per_message, line_streaks)
         groups = apply_phone_master(groups, phone_master)
@@ -142,12 +149,51 @@ class DailyRun:
         log.info("%d vendor/level group(s) to alert today (%s)", len(groups), "trial" if self.dry else "live")
 
         for g in groups:
+            if self._stop_requested():
+                break
             self._handle_group(g)
             # Log each vendor as soon as it is handled: if the process dies mid-run, what was already
             # sent is still in Alert_Log (audit trail + today's dedupe keys), not lost with the run
             self._flush_logs()
 
-    def _check_overdue(self, master: list[dict]) -> dict[str, int]:
+    def _stop_requested(self) -> bool:
+        if self.report.stopped:
+            return True
+        if self.should_stop is None or not self.should_stop():
+            return False
+        self.report.stopped = True
+        log.warning("Emergency stop: run ended early")
+        self.logs.append(log_row(self.ctx, **{"Alert Type": "RUN_STOPPED", "UltraMsg Response": "N/A", "Status": "RUN_STOPPED",
+                                              "Message": "Emergency stop: this run ended early"}))
+        return True
+
+    def _reset_cycles(self, tracker: list[dict]) -> list[dict]:
+        """Vendors whose cycle is over go back to Scenario 1. Returns the tracker as the rest of the run sees it
+        (a trial run works on that copy only). If the reset cannot be saved the vendor keeps its scenario today."""
+        ctx, s = self.ctx, self.s
+        rows = cycle_resets(tracker, ctx.run_date, s.cycle_days, s.vendor_filter, ctx.run_ts)
+        if not rows:
+            return tracker
+        if not self.dry:
+            try:
+                self._write("upsert_rows", "Line_Tracker", rows, key="Line Key")
+            except Exception as e:
+                log.error("Could not reset the cycle of %d line(s): %s", len(rows), e)
+                return tracker
+        vendors: dict[tuple, int] = {}
+        for r in rows:
+            vendor = (r["Vendor Code"], r["Vendor Name"])
+            vendors[vendor] = vendors.get(vendor, 0) + 1
+        for (code, name), lines in vendors.items():
+            self.logs.append(log_row(
+                ctx, **{"Vendor": f"{name} ({code})", "Alert Type": "CYCLE_RESET", "UltraMsg Response": "N/A",
+                        "Message": f"{s.cycle_days} days after Scenario 4: {lines} open line(s) back to Scenario 1",
+                        "Status": "DRY_RUN" if self.dry else "CYCLE_RESET"}))
+        self.report.cycle_resets = len(vendors)
+        log.info("%d vendor(s) back to Scenario 1, %d days after Scenario 4", len(vendors), s.cycle_days)
+        return _merged(tracker, rows)
+
+    def _check_overdue(self, master: list[dict], tracker: list[dict]) -> dict[str, int]:
         """Record this period's overdue check and return each overdue line's streak (checks in a row overdue)."""
         current = overdue_now(master)
         period = period_start(self.ctx.now, self.s.check_period_minutes)
@@ -155,7 +201,7 @@ class DailyRun:
             self.sheet.record_check(period, current, len(master))
         earlier = (self.sheet.recent_checks(period - timedelta(microseconds=1), LEVELS - 1)
                    if hasattr(self.sheet, "recent_checks") else [])
-        line_streaks = streaks([(period, set(current))] + earlier, current)
+        line_streaks = streaks([(period, set(current))] + earlier, current, _cycle_periods(tracker, period))
         by_scenario = [0] * LEVELS
         for n in line_streaks.values():
             by_scenario[confirmed_level(n)] += 1
@@ -170,13 +216,14 @@ class DailyRun:
         ctx, s = self.ctx, self.s
         level = g["nextLevel"]
         tracker_updated = False
+        any_success = False
 
         message = message_for(g)
 
         if level == 2 and not self.dry:  # '07d/07e' call task for the buyer
             self._try_write("append_rows", "Call_Tasks", [call_task_row(g, ctx.run_ts)])
         if level == 2 and s.agent_calls and self.caller and not self.dry:
-            self._agent_call(g)
+            any_success = self._agent_call(g)  # the buyer's WhatsApp is a copy: without it, Scenario 3 is still done
 
         if level == 3:  # '07f/07g/07i' meeting task + log
             meeting = meeting_task_row(g, ctx.run_ts, ctx.now, s)
@@ -198,8 +245,9 @@ class DailyRun:
             self._update_tracker(g)
             tracker_updated = True
 
-        any_success = False
         for rcpt in recipients_for(g, s):
+            if self._stop_requested():
+                break
             if self._send_one(g, rcpt, message):
                 any_success = True
         if any_success and not tracker_updated:  # '09d-09f' advance the escalation level
@@ -207,19 +255,28 @@ class DailyRun:
 
     @traceable(name="agent_call", run_type="tool", process_inputs=lambda i: {
         "vendor": i["g"]["vendorLabel"], "mobile": mask_phones(i["g"].get("scenario3Raw"))})
-    def _agent_call(self, g: dict) -> None:
-        """Scenario 3: the voice agent rings the Scenario 3 number."""
+    def _agent_call(self, g: dict) -> bool:
+        """Scenario 3: the voice agent rings the Scenario 3 number. True if the vendor has had its call:
+        it was placed now, or the vendor already spoke in this cycle."""
         s = self.s
         raw = txt(g.get("scenario3Raw"))
         mobile = normalize_mobile(raw)
         base = {"PO Number": g["poNumber"], "Vendor": g["vendorLabel"], "Recipient Role": "Vendor (Agent call, Scenario 3)",
                 "Recipient Name": g["vendorName"], "Mobile": mobile or raw or "(blank)", "Alert Type": "AGENT_CALL_DAY2",
                 "Escalation Level": "2", "Message": f"Voice agent call to {mobile or raw or '-'}"}
+        spoke_at = self._vendor_spoke(g)
+        if spoke_at:
+            log.info("No agent call to %s: the vendor already spoke in this cycle", g["vendorLabel"])
+            self.logs.append(log_row(self.ctx, **{
+                **base, "Message": f"No call: the vendor already spoke on the call of "
+                                   f"{spoke_at.astimezone(TIMEZONE):%Y-%m-%d %H:%M}, this cycle",
+                "UltraMsg Response": "Not attempted", "Status": "CALL_SKIPPED"}))
+            return True
         if not is_valid_mobile(mobile):
             self.logs.append(log_row(self.ctx, **base, **{
                 "UltraMsg Response": "Not attempted", "Status": "INVALID_MOBILE",
                 "Error": "Invalid/Missing Scenario 3 number", "Retry Status": "FIX_MOBILE_IN_SOURCE"}))
-            return
+            return False
         key = self._register_call(g, mobile)  # a row the voice server fills with the transcript and what it understood
         try:
             call_id = self.caller.call(mobile, call_script(g, s.max_lines_per_message, key))
@@ -228,11 +285,25 @@ class DailyRun:
             log.error("Agent call to %s failed: %s", mask_phones(mobile), e)
             self.logs.append(log_row(self.ctx, **base, **{
                 "UltraMsg Response": "-", "Status": "CALL_FAILED", "Error": str(e)[:500], "Retry Status": "CALL_MANUALLY"}))
-            return
+            return False
         self._on_call_row(calls.attach_frejun_id, key, call_id)
         log.info("Agent call to %s placed, FreJun call id %s", mask_phones(mobile), call_id)
         self.logs.append(log_row(self.ctx, **base, **{"UltraMsg Response": f"FreJun call id {call_id}",
                                                       "Status": "CALL_PLACED"}))
+        return True
+
+    def _vendor_spoke(self, g: dict) -> datetime | None:
+        """When the vendor spoke on an agent call in its current cycle, if it did. If that cannot be read the
+        call is placed: a missed escalation costs more than a second call."""
+        start = self.cycle_starts.get(txt(g["vendorCode"]), self.ctx.run_date)
+        since = datetime(start.year, start.month, start.day, tzinfo=TIMEZONE)
+        if self.s.fresh_start:
+            since = max(since, datetime.strptime(self.s.fresh_start, "%Y-%m-%d %H:%M:%S").replace(tzinfo=TIMEZONE))
+        try:
+            return calls.spoke_since(g["vendorCode"], since)
+        except Exception:
+            log.exception("Could not read %s's earlier calls", g["vendorLabel"])
+            return None
 
     def _register_call(self, g: dict, mobile: str) -> str:
         """Create the call's row. Returns its key, or '' if it could not be saved (the call is still placed)."""
@@ -353,6 +424,23 @@ class DailyRun:
             log.exception("Could not append %d row(s) to Alert_Log", len(rows))
 
 
+def _merged(tracker: list[dict], updates: list[dict]) -> list[dict]:
+    """The tracker with `updates` (rows keyed by Line Key) applied."""
+    changed = {u["Line Key"]: u for u in updates}
+    return [{**t, **changed.get(txt(t.get("Line Key")), {})} for t in tracker]
+
+
+def _cycle_periods(tracker: list[dict], period: datetime) -> dict[str, datetime]:
+    """Line key -> the first check period of the line's cycle; a line sent back to the start begins at `period`."""
+    out = {}
+    for t in tracker:
+        if "CLEARED" in txt(t.get("Status")).upper():
+            continue
+        first = parse_date(t.get("First Alert Date"))
+        out[txt(t.get("Line Key"))] = datetime(first.year, first.month, first.day, tzinfo=TIMEZONE) if first else period
+    return out
+
+
 def _group_summary(g: dict) -> dict:
     return {"vendor": g["vendorLabel"], "level": g["nextLevel"], "alert_type": g["alertType"],
             "lines": g["overdueLines"], "pos": g["poCount"], "max_days_overdue": g["daysOverdue"],
@@ -365,7 +453,7 @@ def _report_summary(report: RunReport) -> dict:
         statuses[a.get("status", "?")] = statuses.get(a.get("status", "?"), 0) + 1
     return {"run_date": report.run_date, "vendor_groups": report.vendor_groups,
             "messages": len(report.alerts), "by_status": statuses, "cleared_lines": report.cleared_lines,
-            "alert_log_rows": len(report.log_rows), "check": report.check}
+            "cycle_resets": report.cycle_resets, "stopped": report.stopped, "alert_log_rows": len(report.log_rows), "check": report.check}
 
 
 @traceable(
@@ -376,6 +464,6 @@ def _report_summary(report: RunReport) -> dict:
     process_outputs=_report_summary,
 )
 def run_daily(settings: Settings, sheet, sender, *, triggered_by: str = "Manual run",
-              now: datetime | None = None, sleep=time.sleep, caller=None, meet=None) -> RunReport:
+              now: datetime | None = None, sleep=time.sleep, caller=None, meet=None, should_stop=None) -> RunReport:
     ctx = RunContext(now or datetime.now(TIMEZONE), triggered_by)
-    return DailyRun(settings, sheet, sender, ctx, sleep=sleep, caller=caller, meet=meet).execute()
+    return DailyRun(settings, sheet, sender, ctx, sleep=sleep, caller=caller, meet=meet, should_stop=should_stop).execute()

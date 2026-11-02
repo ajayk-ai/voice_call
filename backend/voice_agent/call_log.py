@@ -2,17 +2,31 @@
 the vendor committed to. Best effort: a server without the database (or with it down) still runs the call, it just
 doesn't record it, and nothing here may break or delay the call itself."""
 
+import asyncio
 import logging
 
 from fastapi.concurrency import run_in_threadpool
 
 log = logging.getLogger("voice_agent.call_log")
 
+EMERGENCY_CHECK_SECONDS = 2
+
 
 def _calls():
     from backend.po_followup.services import calls
 
     return calls
+
+
+async def emergency_stop_on() -> bool:
+    """Is the follow-up's emergency stop on? A server without the database answers no, within a moment."""
+    from backend.po_followup.db import store
+
+    try:
+        return await asyncio.wait_for(run_in_threadpool(store.emergency_on), EMERGENCY_CHECK_SECONDS)
+    except Exception as e:
+        log.warning("Could not read the emergency stop: %r", e)
+        return False
 
 
 async def call_started(context: dict | None) -> None:

@@ -227,3 +227,17 @@ def test_call_log_does_nothing_for_calls_without_a_record_key():
 
     asyncio.run(call_log.call_started(None))
     asyncio.run(call_log.call_ended({"vendor": "sample"}, [{"role": "vendor", "text": "x"}], None))  # must not touch a database
+
+
+def test_a_call_answered_during_the_emergency_stop_is_hung_up(monkeypatch):
+    from backend.po_followup.db import store
+
+    monkeypatch.setattr(store, "emergency_on", lambda: True)
+    assert client.post("/flow", json={}).json() == {"action": "hangup"}
+
+
+def test_a_server_without_the_database_still_answers_calls(monkeypatch):
+    from backend.po_followup.db import store
+
+    monkeypatch.setattr(store, "emergency_on", lambda: (_ for _ in ()).throw(RuntimeError("no database")))
+    assert client.post("/flow", json={}).json()["action"] == "stream"

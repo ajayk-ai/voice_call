@@ -4,6 +4,7 @@ import logging
 import os
 import re
 import threading
+from contextlib import contextmanager
 from dataclasses import replace
 from datetime import datetime, timedelta
 
@@ -36,10 +37,15 @@ def default_settings() -> dict:
         "auto_enabled": False,
         "auto_mode": "dry",  # dry / live
         "schedule_type": "daily",  # daily / interval
-        "daily_time": base.run_at,
+        "daily_time": "08:30",
         "every_minutes": env_int("FOLLOWUP_DEFAULT_INTERVAL_MINUTES", 1440),
         "vendor_codes": "",  # the vendors chosen in Vendor Control, comma separated
         "vendor_scope": base.vendor_scope,  # selected / all
+        # Set and cleared only through control.emergency_stop / emergency_clear
+        "emergency_stop": False,
+        "emergency_stop_at": "",
+        "emergency_stop_by": "",
+        "fresh_start_at": "",  # set only by store.fresh_start
     }
 
 
@@ -91,6 +97,7 @@ def effective_settings(mode: str) -> Settings:
         vendor_codes=frozenset(c.strip() for c in s["vendor_codes"].split(",") if c.strip()),
         vendor_scope=s["vendor_scope"],
         check_period_minutes=float(s["check_period_minutes"]),
+        fresh_start=s["fresh_start_at"],
     )
 
 
@@ -147,6 +154,16 @@ def _release(db_lock: store.RunLock) -> None:
         _lock.release()
 
 
+@contextmanager
+def runs_held():
+    """No run can start inside this block; raises Busy if one is in progress."""
+    held = _acquire()
+    try:
+        yield
+    finally:
+        _release(held)
+
+
 def start_run(mode: str, trigger: str, wait: bool = False) -> int:
     """Start a run (in the background unless wait=True); returns the run id.
     Raises Busy if one is already running, in this or any other process."""
@@ -154,6 +171,8 @@ def start_run(mode: str, trigger: str, wait: bool = False) -> int:
         raise ValueError(f"Mode must be one of {MODES}")
     held = _acquire()
     try:
+        if store.emergency_on():
+            raise ValueError("The emergency stop is on. Clear it first.")
         if mode == "live" and not whatsapp_ready():
             raise ValueError("Live runs need ULTRAMSG_BASE_URL and ULTRAMSG_TOKEN in .env")
         with store.connect() as conn:
@@ -180,11 +199,11 @@ def _execute(run_id: int, mode: str, trigger: str, held: store.RunLock) -> None:
         if mode == "live":
             sender = UltraMsg(settings.ultramsg_base_url, settings.ultramsg_token)
             caller, meet = AgentCaller(), MeetScheduler()
-        report = run_daily(settings, store.PgStore(), sender, caller=caller, meet=meet,
+        report = run_daily(settings, store.PgStore(), sender, caller=caller, meet=meet, should_stop=store.emergency_on,
                            triggered_by=f"{'Automatic' if trigger == 'auto' else 'Manual'} {mode} run")
         summary = _report_summary(report)
         report_json = {"alerts": report.alerts, "sheet_writes": report.sheet_writes}
-        status = "ok"
+        status = "stopped" if report.stopped else "ok"
     except Exception as e:
         log.exception("Run %s failed", run_id)
         error = str(e)[:2000] or type(e).__name__
@@ -263,7 +282,7 @@ def whatsapp_ready() -> bool:
 
 # A failed daily run is retried this often, at most this many attempts per day (then it waits for tomorrow)
 AUTO_RETRY_DELAY = timedelta(minutes=10)
-AUTO_MAX_ATTEMPTS = 3
+AUTO_MAX_ATTEMPTS = env_int("FOLLOWUP_AUTO_MAX_ATTEMPTS", 3)
 
 
 def recent_auto_runs(limit: int = 10) -> list[dict]:
@@ -276,7 +295,7 @@ def recent_auto_runs(limit: int = 10) -> list[dict]:
 
 def next_auto_run(s: dict | None = None, now: datetime | None = None) -> datetime | None:
     s = s or get_settings()
-    if not s["auto_enabled"]:
+    if not s["auto_enabled"] or s.get("emergency_stop"):
         return None
     now = now or datetime.now(TIMEZONE)
     runs = recent_auto_runs()
@@ -285,9 +304,9 @@ def next_auto_run(s: dict | None = None, now: datetime | None = None) -> datetim
     hh, mm = (int(x) for x in s["daily_time"].split(":"))
     slot = now.replace(hour=hh, minute=mm, second=0, microsecond=0)
     today = [r for r in runs if r["started_at"] >= slot]
-    if any(r["status"] != "failed" for r in today):
+    if any(r["status"] not in ("failed", "stopped") for r in today):
         return slot + timedelta(days=1)  # today's run succeeded (or is running)
-    if today:  # only failed attempts so far: retry a few times, then give up for today
+    if today:  # only failed or stopped attempts so far: retry a few times, then give up for today
         if len(today) >= AUTO_MAX_ATTEMPTS:
             return slot + timedelta(days=1)
         return max(now, today[0]["started_at"] + AUTO_RETRY_DELAY)

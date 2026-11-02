@@ -5,11 +5,12 @@ and when the next step is due."""
 import re
 import threading
 import time
-from datetime import datetime
+from datetime import date, datetime, timedelta
 
 from backend.core.env import TIMEZONE, env_int
 from backend.po_followup.domain.escalation import (
-    CONTACT_FIELDS, MAX_LEVEL, apply_phone_master, last_alert_time, line_key, map_row, num, txt,
+    CONTACT_FIELDS, MAX_LEVEL, apply_phone_master, cycle_starts, last_alert_time, line_key, map_row, meeting_dates, num,
+    pretty, txt,
 )
 from backend.po_followup.config import Settings
 from backend.po_followup.db import store
@@ -73,8 +74,40 @@ def index_vendors(master: list[dict]) -> dict[str, dict]:
             "key": key, "po": po, "item": txt(r.get("poItem")), "sched": txt(r.get("schedLine")),
             "desc": txt(r.get("materialDescription")) or txt(r.get("material")),
             "pending": f"{txt(r.get('pendingQty'))} {txt(r.get('uom'))}".strip(), "od": od,
+            "pg": txt(r.get("purchasingGroup")), "buyer": buyer_name(r.get("buyerEmail")),
         })
     return vendors
+
+
+def buyer_name(email) -> str:
+    value = txt(email)
+    return "" if value == "#N/A" else value.split("@")[0]
+
+
+def line_groups(vendor: dict) -> dict:
+    """A vendor's overdue lines per purchasing group, and its POs and buyers. One vendor often supplies several
+    groups. With nothing overdue, the group and buyer come from its Master contacts."""
+    lines = vendor.get("lines", {}).values()
+    c = vendor.get("contacts", {})
+    by_pg: dict[str, dict] = {}
+    for l in lines:
+        if l["pg"]:
+            pg = by_pg.setdefault(l["pg"], {"lines": 0, "max_od": 0, "pos": 0})
+            pg["lines"] += 1
+            pg["max_od"] = max(pg["max_od"], l["od"])
+    for g, pg in by_pg.items():
+        pg["pos"] = len({l["po"] for l in lines if l["pg"] == g})
+    if not by_pg and c.get("purchasingGroup"):
+        by_pg[c["purchasingGroup"]] = {"lines": 0, "max_od": 0, "pos": 0}
+    buyers = {l["buyer"] for l in lines if l["buyer"]} or {buyer_name(c.get("buyerEmail"))} - {""}
+    return {"by_pg": by_pg, "buyers": sorted(buyers), "po_count": len({l["po"] for l in lines})}
+
+
+def cycle_info(start: date | None, reached: date | None, cycle_days: int, today: date) -> dict:
+    """Where a vendor is in its cycle. `restart_on`, the day it starts again from Scenario 1, is known once it has
+    reached Scenario 4."""
+    return {"cycle_start": start.isoformat() if start else None, "cycle_day": (today - start).days + 1 if start else None,
+            "cycle_days": cycle_days, "restart_on": (reached + timedelta(days=cycle_days)).isoformat() if reached else None}
 
 
 def contacts(vendor: dict, phone_master: list[dict], scm_hod_mobile: str) -> dict:
@@ -108,6 +141,17 @@ def position(tracker_rows: list[dict]) -> tuple[int | None, datetime | None]:
     return level, last
 
 
+def since_restart(alert_rows: list[dict], fresh_start: str) -> list[dict]:
+    """The Alert_Log rows since 'Restart from Scenario 1' was last pressed."""
+    return [r for r in alert_rows if txt(r.get("Timestamp")) >= fresh_start]
+
+
+def current_cycle(alert_rows: list[dict]) -> list[dict]:
+    """The Alert_Log rows (oldest first) since the vendor last went back to Scenario 1."""
+    resets = [i for i, r in enumerate(alert_rows) if r.get("Status") == "CYCLE_RESET"]
+    return alert_rows[resets[-1] + 1:] if resets else alert_rows
+
+
 def journey(level: int | None, last_alert: datetime | None, alert_rows: list[dict], period_minutes: float,
             now: datetime) -> list[dict]:
     """The four steps with state done / next / later, their messages (newest first) and when the next is due.
@@ -139,11 +183,14 @@ def journey(level: int | None, last_alert: datetime | None, alert_rows: list[dic
     return steps
 
 
-def next_step_note(steps: list[dict], pending_lines: int, chosen: bool, s: dict, next_auto: datetime | None) -> str:
+def next_step_note(steps: list[dict], pending_lines: int, chosen: bool, s: dict, next_auto: datetime | None,
+                   restart_on: date | None = None) -> str:
     """One sentence saying what happens next for this vendor, in plain words."""
     nxt = next((st for st in steps if st["state"] == "next"), None)
     if nxt is None:
-        return "All steps done: the meeting stage is reached. Nothing more is sent for these lines."
+        return ("All steps done: the meeting stage is reached. "
+                + (f"Lines still overdue on {pretty(restart_on)} start again from Scenario 1." if restart_on
+                   else "Nothing more is sent for these lines."))
     if pending_lines == 0:
         return "No pending lines (OD Days > 0) for this vendor, so nothing is sent. Open lines are marked CLEARED on the next run."
     if vendor_filter(s) is not None and not chosen:
@@ -193,6 +240,23 @@ def vendor_filter(s: dict) -> set[str] | None:
     return None if s.get("vendor_scope", "all") == "all" else chosen_codes(s)
 
 
+def vendor_row(code: str, vendor: dict, level: int | None, last: datetime | None, chosen: bool, cycle: dict) -> dict:
+    """One vendor of the trace list."""
+    return {
+        "code": code, "name": vendor["name"], "pending_lines": len(vendor["lines"]),
+        "max_od": max((l["od"] for l in vendor["lines"].values()), default=0),
+        "level": level, "step": STEPS[level]["name"] if level is not None else None,
+        "last_alert_at": last.isoformat() if last else None, "chosen": chosen,
+        **line_groups(vendor), **cycle,
+    }
+
+
+def idle_vendor(code: str, name: str, vendor: dict | None, cycle_days: int) -> dict:
+    """A chosen vendor with nothing overdue and nothing open."""
+    return vendor_row(code, {**(vendor or {}), "name": name, "lines": {}}, None, None, True,
+                      cycle_info(None, None, cycle_days, datetime.now(TIMEZONE).date()))
+
+
 def vendor_list() -> list[dict]:
     """Every vendor with pending lines or open tracker lines, furthest escalated first."""
     s, master, tracker = _settings_and_data()
@@ -201,6 +265,9 @@ def vendor_list() -> list[dict]:
     for t in tracker:
         by_vendor.setdefault(txt(t.get("Vendor Code")), []).append(t)
     chosen = chosen_codes(s)
+    starts, reached = cycle_starts(tracker), meeting_dates(tracker)
+    cycle_days = Settings.from_env().cycle_days
+    today = datetime.now(TIMEZONE).date()
     out = []
     for code in set(vendors) | {c for c, rows in by_vendor.items() if c and any(_active(t) for t in rows)}:
         v = vendors.get(code) or {
@@ -208,12 +275,7 @@ def vendor_list() -> list[dict]:
         level, last = position(by_vendor.get(code, []))
         if not v["lines"] and level is None:
             continue
-        out.append({
-            "code": code, "name": v["name"], "pending_lines": len(v["lines"]),
-            "max_od": max((l["od"] for l in v["lines"].values()), default=0),
-            "level": level, "step": STEPS[level]["name"] if level is not None else None,
-            "last_alert_at": last.isoformat() if last else None, "chosen": code in chosen,
-        })
+        out.append(vendor_row(code, v, level, last, code in chosen, cycle_info(starts.get(code), reached.get(code), cycle_days, today)))
     out.sort(key=lambda v: (-(v["level"] if v["level"] is not None else -1), -v["max_od"], v["name"]))
     return out
 
@@ -222,7 +284,7 @@ def vendor_trace(code: str) -> dict | None:
     s, master, tracker = _settings_and_data()
     vendor = index_vendors(master).get(code)
     tracker_rows = [t for t in tracker if txt(t.get("Vendor Code")) == code]
-    alert_rows = store.vendor_rows("Alert_Log", code)
+    alert_rows = since_restart(store.vendor_rows("Alert_Log", code), s["fresh_start_at"])
     if vendor is None and not tracker_rows and not alert_rows:
         return None
     if vendor is None:
@@ -230,7 +292,9 @@ def vendor_trace(code: str) -> dict | None:
                   "contacts": {}, "lines": {}}
     now = datetime.now(TIMEZONE)
     level, last = position(tracker_rows)
-    steps = journey(level, last, alert_rows, s["check_period_minutes"], now)
+    steps = journey(level, last, current_cycle(alert_rows), s["check_period_minutes"], now)
+    settings = Settings.from_env()
+    cycle = cycle_info(cycle_starts(tracker_rows).get(code), meeting_dates(tracker_rows).get(code), settings.cycle_days, now.date())
     next_auto = service.next_auto_run(s, now)
     chosen = code in chosen_codes(s)
 
@@ -242,8 +306,8 @@ def vendor_trace(code: str) -> dict | None:
         lines.append({
             "key": key, "po": l["po"] if l else txt(t.get("PO No")), "desc": l["desc"] if l else txt(t.get("Material")),
             "pending": l["pending"] if l else "", "od": l["od"] if l else txt(t.get("OD Days")),
-            "level": _level(t.get("Escalation Level")) if t else None,
-            "status": txt(t.get("Status")) or ("PENDING" if l else ""),
+            "level": _level(t.get("Escalation Level")) if t and _active(t) else None,
+            "status": txt(t.get("Status")) or ("PENDING" if l else ""), "pg": l["pg"] if l else "",
             "last_alert_at": at.isoformat() if at else None,
         })
 
@@ -251,9 +315,12 @@ def vendor_trace(code: str) -> dict | None:
     return {
         "code": code, "name": vendor["name"], "now": now.isoformat(),
         "pending_lines": len(vendor["lines"]), "level": level, "chosen": chosen,
-        "contacts": contacts(vendor, phone_master, Settings.from_env().scm_hod_mobile),
+        "contacts": contacts(vendor, phone_master, settings.scm_hod_mobile),
+        **line_groups(vendor), **cycle,
+        "cycle_number": 1 + sum(r.get("Status") == "CYCLE_RESET" for r in alert_rows),
         "steps": steps,
-        "next_note": next_step_note(steps, len(vendor["lines"]), chosen, s, next_auto),
+        "next_note": next_step_note(steps, len(vendor["lines"]), chosen, s, next_auto,
+                                    date.fromisoformat(cycle["restart_on"]) if cycle["restart_on"] else None),
         "next_auto_run": next_auto.isoformat() if next_auto else None,
         "lines": lines,
         "call_tasks": store.vendor_rows("Call_Tasks", code),

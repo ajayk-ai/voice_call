@@ -45,7 +45,6 @@ If `.env` does not exist, the script above creates it from `.env.example`. Set e
 | Variable | Value |
 |---|---|
 | `PUBLIC_URL` | `http://<server-ip>:8082` |
-| `APP_PASSWORD` | Code for placing calls from the web page |
 | `APP_PASSWORD` | Admin sign-in password |
 | `ULTRAMSG_WEBHOOK_SECRET` | Random string; used in the vendor-reply webhook URL |
 | `GEMINI_API_KEY`, `TELER_API_KEY`, `FREJUN_PHONE_NUMBER` | From the providers (phone number with +91) |
@@ -122,6 +121,7 @@ Use Trial in Vendor Control first. Live sends real messages to the chosen vendor
 | Logs (follow) | `docker compose logs -f app` / `docker compose logs -f sync` |
 | Status | `docker compose ps` |
 | Restart | `docker compose restart app` |
+| Apply a `.env` change | `docker compose up -d` (`restart` does not re-read `.env`) |
 | Stop | `docker compose down` |
 | Deploy a new version | `git pull && docker compose up -d --build` |
 

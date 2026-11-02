@@ -3,7 +3,7 @@
 import os
 from dataclasses import dataclass
 
-from backend.core.env import env_bool
+from backend.core.env import env_bool, env_int
 
 __all__ = ["Settings", "env_bool"]
 
@@ -21,7 +21,6 @@ class Settings:
     scm_head_email: str
     max_lines_per_message: int
     send_interval_seconds: float
-    run_at: str  # daily run time, HH:MM in IST
     # Overdue lines are checked once per period (1440 = one IST day); each check in a row a line is still
     # overdue confirms the next scenario (domain/overdue.py)
     check_period_minutes: float = 1440
@@ -31,6 +30,10 @@ class Settings:
     meet_invites: bool = True
     # "selected": only vendor_codes are followed up; "all": every vendor
     vendor_scope: str = "selected"
+    # Days after a vendor reaches Scenario 4 at which it starts again from Scenario 1
+    cycle_days: int = 7
+    # "Restart from Scenario 1" was pressed at this time (IST, as in Alert_Log): nothing before it counts
+    fresh_start: str = ""
 
     @property
     def vendor_filter(self) -> frozenset[str] | None:
@@ -50,9 +53,7 @@ class Settings:
             scm_head_email=os.getenv("SCM_HEAD_EMAIL", ""),
             max_lines_per_message=int(os.getenv("FOLLOWUP_MAX_LINES_PER_MESSAGE", "15")),
             send_interval_seconds=float(os.getenv("FOLLOWUP_SEND_INTERVAL_SECONDS", "1.5")),
-            run_at=os.getenv("FOLLOWUP_RUN_AT", "08:30"),
-            check_period_minutes=float(os.getenv("FOLLOWUP_CHECK_PERIOD_MINUTES", "1440")),
             agent_calls=env_bool("FOLLOWUP_AGENT_CALLS", True),
             meet_invites=env_bool("FOLLOWUP_MEET_INVITES", True),
-            vendor_scope="all" if os.getenv("FOLLOWUP_VENDOR_SCOPE", "selected").strip().lower() == "all" else "selected",
+            cycle_days=max(1, env_int("FOLLOWUP_CYCLE_DAYS", 7)),
         )

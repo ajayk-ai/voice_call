@@ -90,6 +90,11 @@ class ControlStart(BaseModel):
     confirm_scope: str | None = None  # "ALL" to follow up every vendor
 
 
+class ControlRestart(ControlStart):
+    """Every vendor back to Scenario 1, then start with these settings."""
+    confirm_restart: str | None = None  # "RESTART"
+
+
 class RunNow(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

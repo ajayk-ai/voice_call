@@ -33,7 +33,7 @@ def tracker_row(key, level, last_date="2026-10-07", status="OPEN"):
 SETTINGS = Settings(
     sheet_id="x", dry_run=False, vendor_codes=frozenset({"400186"}), ultramsg_base_url="u", ultramsg_token="t",
     scm_hod_name="SCM Head", scm_hod_mobile="9999999999", scm_head_email="", max_lines_per_message=15,
-    send_interval_seconds=0, run_at="08:30", vendor_scope="all",
+    send_interval_seconds=0, vendor_scope="all",
 )
 
 
@@ -365,3 +365,180 @@ def test_meeting_invite_includes_the_vendors_own_scenario_4_emails():
     assert row["Attendee Emails"] == "head@bull.com,buyer@bull.com,md@acme.com"  # no duplicates, vendor ids last
     assert "Vendor (md@acme.com, head@bull.com)" in row["Participants"]
     assert meeting_task_row({**g, "vendorEmails": ""}, "t", NOW, SETTINGS)["Attendee Emails"] == "head@bull.com,buyer@bull.com"
+
+
+# ---------- the 7-day cycle ----------
+
+def cycle_row(key, level, first, status="OPEN", last="2026-10-01"):
+    return {**tracker_row(key, level, last, status), "First Alert Date": first, "Vendor Code": "400186",
+            "Vendor Name": "SUPER SPRINGS"}
+
+
+def test_vendor_goes_back_to_scenario_1_seven_days_after_reaching_scenario_4():
+    sheet = FakeSheet({"Master": [master_row("1"), master_row("2")],
+                       "Line_Tracker": [cycle_row("1/10/1", 3, "2026-09-28", "MEETING_SCHEDULED"), cycle_row("2/10/1", 1, "2026-10-05")]},
+                      overdue_days=6)
+    sender = FakeSender()
+    report = run(sheet, sender)
+    assert report.cycle_resets == 1
+    assert [m for m, _ in sender.sent] == ["919876543210", "919876543211"]  # Scenario 1 contacts again
+    reset, sent = sheet.upserted["Line_Tracker"][:2], sheet.upserted["Line_Tracker"][2:]
+    assert {(r["Escalation Level"], r["First Alert Date"]) for r in reset} == {("", "")}
+    assert {(r["Escalation Level"], r["First Alert Date"]) for r in sent} == {("0", "2026-10-08")} and len(sent) == 2
+    assert sheet.appended["Alert_Log"][0]["Status"] == "CYCLE_RESET" and sheet.appended["Alert_Log"][0]["Vendor"] == "SUPER SPRINGS (400186)"
+
+
+def test_six_days_after_scenario_4_nothing_goes_out():
+    sheet = FakeSheet({"Master": [master_row("1")], "Line_Tracker": [cycle_row("1/10/1", 3, "2026-09-28", last="2026-10-02")]}, overdue_days=5)
+    report = run(sheet, FakeSender())
+    assert report.cycle_resets == 0 and report.alerts == [] and "Line_Tracker" not in sheet.upserted
+
+
+def test_a_vendor_below_scenario_4_is_never_reset_however_old():
+    sheet = FakeSheet({"Master": [master_row("1")], "Line_Tracker": [cycle_row("1/10/1", 1, "2026-01-01", last="2026-01-02")]}, overdue_days=3)
+    report = run(sheet, FakeSender())
+    assert report.cycle_resets == 0 and report.alerts[0]["level"] == 2
+
+
+def test_lines_reaching_scenario_4_later_do_not_push_the_restart_away():
+    from backend.po_followup.domain.escalation import meeting_dates
+
+    rows = [cycle_row("a", 3, "2026-09-28", last="2026-10-01"), cycle_row("b", 3, "2026-10-05", last="2026-10-08"),
+            cycle_row("c", 3, "2026-09-01", "CLEARED", last="2026-09-05"), cycle_row("d", 2, "2026-09-01", last="2026-09-05")]
+    assert meeting_dates(rows) == {"400186": date(2026, 10, 1)}
+
+
+def test_after_a_reset_the_vendor_climbs_one_scenario_per_check_again():
+    sheet = FakeSheet({"Master": [master_row("1")], "Line_Tracker": [cycle_row("1/10/1", 3, "2026-10-01")]}, overdue_days=9)
+    assert run(sheet, FakeSender()).alerts[0]["level"] == 0
+    sheet.tabs["Line_Tracker"] = [{**t, **r} for t in sheet.tabs["Line_Tracker"] for r in sheet.upserted["Line_Tracker"][-1:]]
+    assert run(sheet, FakeSender()).alerts == []  # same day again: nothing
+    report = run_daily(SETTINGS, sheet, FakeSender(), now=NOW + timedelta(days=1), sleep=lambda _: None)
+    assert report.alerts[0]["level"] == 1
+
+
+def test_a_line_cleared_in_the_run_stays_cleared_when_the_cycle_resets():
+    sheet = FakeSheet({"Master": [master_row("1"), master_row("2", od="0")],
+                       "Line_Tracker": [cycle_row("1/10/1", 3, "2026-10-01"), cycle_row("2/10/1", 3, "2026-10-01")]})
+    run(sheet, FakeSender())
+    assert [r["Line Key"] for r in sheet.upserted["Line_Tracker"] if r.get("Status") == "CLEARED"] == ["2/10/1"]
+    assert "2/10/1" not in [r["Line Key"] for r in sheet.upserted["Line_Tracker"][1:]]
+
+
+def test_a_vendor_not_chosen_keeps_its_cycle_and_a_trial_run_changes_nothing():
+    rows = [cycle_row("1/10/1", 3, "2026-10-01")]
+    sheet = FakeSheet({"Master": [master_row("1")], "Line_Tracker": rows})
+    assert run(sheet, FakeSender(), vendor_scope="selected", vendor_codes=frozenset({"111"})).cycle_resets == 0
+    sender = FakeSender()
+    report = run(sheet, sender, dry_run=True)
+    assert report.cycle_resets == 1 and report.alerts[0]["level"] == 0 and sender.sent == []
+    assert "Line_Tracker" not in sheet.upserted and {r["Status"] for r in sheet.appended["Alert_Log"]} == {"DRY_RUN"}
+
+
+def test_a_failed_reset_keeps_the_vendor_where_it_is(monkeypatch):
+    sheet = FakeSheet({"Master": [master_row("1")], "Line_Tracker": [cycle_row("1/10/1", 3, "2026-10-01")]}, overdue_days=9)
+    monkeypatch.setattr(sheet, "upsert_rows", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("db")))
+    report = run(sheet, FakeSender())
+    assert report.cycle_resets == 0 and report.alerts == []
+
+
+def scenario3_sheet():
+    return FakeSheet({"Master": [master_row("1"), master_row("2")],
+                      "Line_Tracker": [cycle_row("1/10/1", 3, "2026-10-02", last="2026-10-05"), cycle_row("2/10/1", 1, "2026-10-06")]}, overdue_days=2)
+
+
+def test_no_second_agent_call_once_the_vendor_spoke_in_this_cycle(monkeypatch):
+    from backend.po_followup.services import calls
+
+    asked = []
+    spoke = datetime(2026, 10, 7, 10, 15, tzinfo=TIMEZONE)
+    monkeypatch.setattr(calls, "spoke_since", lambda code, since: asked.append((code, since)) or spoke)
+    sheet, caller, sender = scenario3_sheet(), FakeCaller(), FakeSender()
+    run_daily(SETTINGS, sheet, sender, now=NOW, sleep=lambda _: None, caller=caller)
+    assert caller.called == []
+    assert asked == [("400186", datetime(2026, 10, 2, tzinfo=TIMEZONE))]  # from the vendor's cycle start, not the line's
+    row = next(r for r in sheet.appended["Alert_Log"] if r["Alert Type"] == "AGENT_CALL_DAY2")
+    assert row["Status"] == "CALL_SKIPPED" and "2026-10-07 10:15" in row["Message"]
+    assert [m for m, _ in sender.sent] == ["919876543213"]  # the buyer is still told, and the line moves on
+    assert sheet.upserted["Line_Tracker"][0]["Escalation Level"] == "2"
+
+
+def test_vendor_that_did_not_speak_is_called(monkeypatch):
+    from backend.po_followup.services import calls
+
+    caller = FakeCaller()
+    run_daily(SETTINGS, scenario3_sheet(), FakeSender(), now=NOW, sleep=lambda _: None, caller=caller)
+    assert caller.called == ["919876543212"]
+    monkeypatch.setattr(calls, "spoke_since", lambda *a: (_ for _ in ()).throw(RuntimeError("db")))
+    caller = FakeCaller()
+    run_daily(SETTINGS, scenario3_sheet(), FakeSender(), now=NOW, sleep=lambda _: None, caller=caller)
+    assert caller.called == ["919876543212"]  # earlier calls unreadable: the escalation is not lost
+
+
+def no_buyer_number():
+    row = master_row("1", **{"buyer number": ""})
+    return FakeSheet({"Master": [row], "Line_Tracker": [cycle_row("1/10/1", 1, "2026-10-06")]}, overdue_days=2)
+
+
+def test_scenario3_is_done_once_the_call_is_placed_even_without_a_buyer_number():
+    sheet, caller = no_buyer_number(), FakeCaller()
+    run_daily(SETTINGS, sheet, FakeSender(), now=NOW, sleep=lambda _: None, caller=caller)
+    assert caller.called == ["919876543212"] and sheet.upserted["Line_Tracker"][0]["Escalation Level"] == "2"
+    sheet.tabs["Line_Tracker"] = [{**sheet.tabs["Line_Tracker"][0], **sheet.upserted["Line_Tracker"][0]}]
+    run_daily(SETTINGS, sheet, FakeSender(), now=NOW + timedelta(hours=1), sleep=lambda _: None, caller=caller)
+    assert caller.called == ["919876543212"]  # no second call on the next run
+
+
+def test_a_vendor_who_spoke_moves_on_even_without_a_buyer_number(monkeypatch):
+    from backend.po_followup.services import calls
+
+    monkeypatch.setattr(calls, "spoke_since", lambda *a: NOW)
+    sheet = no_buyer_number()
+    run_daily(SETTINGS, sheet, FakeSender(), now=NOW, sleep=lambda _: None, caller=FakeCaller())
+    assert sheet.upserted["Line_Tracker"][0]["Escalation Level"] == "2"
+
+
+def test_a_call_that_could_not_be_placed_is_tried_again():
+    sheet = no_buyer_number()
+    run_daily(SETTINGS, sheet, FakeSender(), now=NOW, sleep=lambda _: None, caller=FakeCaller(fail=True))
+    assert "Line_Tracker" not in sheet.upserted
+
+
+# ---------- emergency stop ----------
+
+def test_emergency_stop_ends_the_run_before_the_next_send():
+    sheet = FakeSheet({"Master": [master_row("1"), master_row("9", vendor="111")]})
+    sender, answers = FakeSender(), iter([False, False, True])  # first vendor: asked, 1st contact; then stopped
+    report = run_daily(SETTINGS, sheet, sender, now=NOW, sleep=lambda _: None, should_stop=lambda: next(answers))
+    assert report.stopped and [m for m, _ in sender.sent] == ["919876543210"]
+    assert sheet.upserted["Line_Tracker"][0]["Escalation Level"] == "0"  # what did go out is still recorded
+    assert sheet.appended["Alert_Log"][-1]["Status"] == "RUN_STOPPED"
+
+
+def test_emergency_stop_before_the_first_vendor_sends_and_calls_nothing():
+    sheet = FakeSheet({"Master": [master_row("1")], "Line_Tracker": [tracker_row("1/10/1", 1)]}, overdue_days=2)
+    sender, caller = FakeSender(), FakeCaller()
+    report = run_daily(SETTINGS, sheet, sender, now=NOW, sleep=lambda _: None, caller=caller, should_stop=lambda: True)
+    assert report.stopped and sender.sent == [] and caller.called == [] and "Call_Tasks" not in sheet.appended
+
+
+# ---------- restart from Scenario 1 ----------
+
+def test_after_a_restart_todays_earlier_messages_do_not_block_scenario_1():
+    earlier = {"Alert Date": "2026-10-08", "Timestamp": "2026-10-08 08:00:00", "Dedupe Key": "400186|L0|VENDOR_ALERT_DAY0|2026-10-08"}
+    sheet = FakeSheet({"Master": [master_row("1")], "Alert_Log": [earlier]})
+    assert run(sheet, FakeSender()).alerts == []  # no restart: today's key blocks the repeat
+    sheet = FakeSheet({"Master": [master_row("1")], "Alert_Log": [earlier],
+                       "Line_Tracker": [{**cycle_row("1/10/1", 3, "2026-10-05"), "Status": "CLEARED - RESTART"}]})
+    report = run(sheet, FakeSender(), fresh_start="2026-10-08 08:10:00")
+    assert report.alerts[0]["level"] == 0
+
+
+def test_a_call_before_the_restart_does_not_count(monkeypatch):
+    from backend.po_followup.services import calls
+
+    asked = []
+    monkeypatch.setattr(calls, "spoke_since", lambda code, since: asked.append(since))
+    sheet = scenario3_sheet()
+    run_daily(replace(SETTINGS, fresh_start="2026-10-08 08:10:00"), sheet, FakeSender(), now=NOW, sleep=lambda _: None, caller=FakeCaller())
+    assert asked == [datetime(2026, 10, 8, 8, 10, tzinfo=TIMEZONE)]

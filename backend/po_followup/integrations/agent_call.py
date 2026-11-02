@@ -3,6 +3,8 @@
 import asyncio
 import os
 
+from backend.core.env import env_int
+
 
 class AgentCallNotConfigured(RuntimeError):
     pass
@@ -32,7 +34,7 @@ def call_script(g: dict, max_lines: int = 15, key: str = "") -> str:
 
 
 # Time allowed for the server to answer the wake-up request before the call is placed
-WAKE_TIMEOUT_SECONDS = 90
+WAKE_TIMEOUT_SECONDS = env_int("CALL_WAKE_TIMEOUT_SECONDS", 90)
 
 
 def check_stream_server(base: str) -> None:
@@ -52,6 +54,19 @@ def check_stream_server(base: str) -> None:
         raise AgentCallNotConfigured(
             f"The voice agent server at PUBLIC_URL ({base}) runs older code without vendor call scripts, so the "
             "agent would read the fixed sample script. Deploy the latest code there. Call not placed.")
+
+
+def hang_up(call_id: str) -> None:
+    """End a ringing or connected call."""
+    from teler import AsyncClient
+
+    from backend.voice_agent.config import TELER_API_KEY, TELER_TIMEOUT_SECONDS
+
+    async def end():
+        async with AsyncClient(api_key=TELER_API_KEY, timeout=TELER_TIMEOUT_SECONDS) as client:
+            await client.voice.mutations.hangup(call_id)
+
+    asyncio.run(end())
 
 
 class AgentCaller:
