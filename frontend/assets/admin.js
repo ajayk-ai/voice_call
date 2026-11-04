@@ -1,8 +1,8 @@
 "use strict";
 /* Admin: system tests (WhatsApp, call, meeting) and SCM users. */
 const session = Session.require("admin");
-const adminApi = (path, opts) => request("/admin/api" + path, opts);
-const adminPost = (path, body, method) => post("/admin/api" + path, body, method);
+const adminApi = (path, opts) => request("admin/api" + path, opts);
+const adminPost = (path, body, method) => post("admin/api" + path, body, method);
 const TABS = ["tests", "users"];
 
 function showTab(t) {

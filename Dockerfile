@@ -15,4 +15,4 @@ RUN useradd -r -u 10001 poagent && chown -R poagent /app
 USER poagent
 
 # One web process (no --workers): call audio WebSockets live in the process.
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8082"]
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8081"]

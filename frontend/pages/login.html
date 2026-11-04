@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>PO Agent · Sign in</title>
-<link rel="stylesheet" href="/assets/app.css">
+<link rel="stylesheet" href="assets/app.css">
 </head>
 <body>
 <main class="login-page">
@@ -25,7 +25,7 @@
     </form>
   </div>
 </main>
-<script src="/assets/app.js"></script>
+<script src="assets/app.js"></script>
 <script>
 "use strict";
 const existing = Session.get();
@@ -40,7 +40,7 @@ $("form").onsubmit = async (e) => {
   e.preventDefault();
   $("go").disabled = true; $("err").hidden = true;
   try {
-    const res = await fetch("/dashboard/auth/login", { method: "POST", headers: { "Content-Type": "application/json" },
+    const res = await fetch("dashboard/auth/login", { method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ role, username: $("user").value, password: $("pass").value }) });
     const body = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(body.error || "Could not sign in.");

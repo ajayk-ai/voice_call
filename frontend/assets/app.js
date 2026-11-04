@@ -29,17 +29,17 @@ const Session = {
   // Sends the visitor to the login page unless signed in with this role
   require(role) {
     const s = this.get();
-    if (!s || s.role !== role) { location.replace("/"); return null; }
+    if (!s || s.role !== role) { location.replace("./"); return null; }
     return s;
   },
-  home: (role) => (role === "admin" ? "/admin" : "/dashboard"),
+  home: (role) => (role === "admin" ? "admin" : "dashboard"),
 };
 
 async function request(url, opts = {}) {
   const s = Session.get();
   const res = await fetch(url, { ...opts, headers: { "Content-Type": "application/json", ...(s ? { "X-Session": s.token } : {}), ...(opts.headers || {}) } });
   const body = await res.json().catch(() => ({}));
-  if (res.status === 401 && s) { Session.clear(); location.replace("/"); throw new Error("Session ended"); }
+  if (res.status === 401 && s) { Session.clear(); location.replace("./"); throw new Error("Session ended"); }
   if (!res.ok) throw new Error(body.error || res.statusText);
   return body;
 }
@@ -56,7 +56,7 @@ function openDrawer(title, sub, html) {
   $("scrim").hidden = $("drawer").hidden = false; document.body.style.overflow = "hidden";
 }
 function closeDrawer() { $("scrim").hidden = $("drawer").hidden = true; document.body.style.overflow = ""; }
-function signOut() { Session.clear(); location.replace("/"); }
+function signOut() { Session.clear(); location.replace("./"); }
 // One confirmation dialog for every page; resolves true when the user agrees
 function ask(title, text, yes) {
   return new Promise((resolve) => {

@@ -1,7 +1,8 @@
 # Deploy on this server:  docker compose up -d --build
 #
 # Host networking: the containers reach the host PostgreSQL at localhost (PO_DB_HOST=localhost), so PostgreSQL
-# stays closed to the network. The app is reached directly at http://<server-ip>:8082 (no reverse proxy, no HTTPS).
+# stays closed to the network. The app listens on port 8081; users reach it through host nginx at http://ai.bullmachine.in/scm/
+# (scripts/nginx-ai.bullmachine.in.conf).
 x-app: &app
   image: po-agent:latest
   network_mode: host
@@ -19,7 +20,7 @@ services:
     build: .
     container_name: po-agent
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8082/health', timeout=3)"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8081/health', timeout=3)"]
       interval: 30s
       timeout: 5s
       retries: 3

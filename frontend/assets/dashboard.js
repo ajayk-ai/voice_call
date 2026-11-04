@@ -1,8 +1,8 @@
 "use strict";
 /* SCM user app: 1 Vendor Master, 2 Vendor Control, 3 Trace, 4 Call Results. */
 const session = Session.require("scm");
-const api = (path, opts) => request("/dashboard/api" + path, opts);
-const send = (path, body, method) => post("/dashboard/api" + path, body, method);
+const api = (path, opts) => request("dashboard/api" + path, opts);
+const send = (path, body, method) => post("dashboard/api" + path, body, method);
 if (session) $("me").textContent = session.name;
 
 const TABS = ["vendors", "control", "trace", "calls"];
