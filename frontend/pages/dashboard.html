@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Overdue PO Dashboard</title>
-<link rel="stylesheet" href="/assets/ui.css">
+<link rel="stylesheet" href="assets/ui.css">
 <style>
   /* ---------- tokens ---------- */
   :root {
@@ -372,12 +372,12 @@
 </head>
 <body>
 <nav class="gnav" aria-label="Pages"><div class="gnav-in">
-    <a class="brand" href="/"><span class="mark" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 7l9-4 9 4-9 4-9-4z"/><path d="M3 7v10l9 4 9-4V7M12 11v10"/></svg></span><span class="word"><b>PO Agent</b><small>Supply chain follow-up</small></span></a>
+    <a class="brand" href="./"><span class="mark" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 7l9-4 9 4-9 4-9-4z"/><path d="M3 7v10l9 4 9-4V7M12 11v10"/></svg></span><span class="word"><b>PO Agent</b><small>Supply chain follow-up</small></span></a>
     <div class="links">
-      <a href="/dashboard" aria-current="page">Dashboard</a>
-      <a href="/?tab=phone">Normal call</a>
-      <a href="/?tab=browser">Voice agent</a>
-      <a href="/admin">Follow-up admin</a>
+      <a href="dashboard" aria-current="page">Dashboard</a>
+      <a href="./?tab=phone">Normal call</a>
+      <a href="./?tab=browser">Voice agent</a>
+      <a href="admin">Follow-up admin</a>
     </div>
 </div></nav>
 <header class="hero">
@@ -702,7 +702,7 @@ async function load() {
   try {
     // Same env and data already shown: the server answers 304 and nothing is downloaded, parsed or redrawn
     const etag = data && dataEnv === env ? dataTag : null;
-    const res = await fetch("/dashboard/api/" + env, { headers: { "X-Access-Code": code, ...(etag ? { "If-None-Match": etag } : {}) } });
+    const res = await fetch("dashboard/api/" + env, { headers: { "X-Access-Code": code, ...(etag ? { "If-None-Match": etag } : {}) } });
     if (res.status === 304) {
       data.now = new Date().toISOString();
       $("asof").textContent = asof(); $("errBanner").hidden = true;
@@ -1129,7 +1129,7 @@ $("drawer").addEventListener("keydown", (e) => {  // keep Tab inside the panel
 // ---------- vendor scenario numbers (Phone_Master) ----------
 const SCENARIO_WHO = ["Vendor planner + coordinator", "Vendor management", "Voice agent call"];
 async function api(path, opts = {}) {
-  const res = await fetch(`/dashboard/api/${env}${path}`, { ...opts, headers: { "X-Access-Code": code, "Content-Type": "application/json" } });
+  const res = await fetch(`dashboard/api/${env}${path}`, { ...opts, headers: { "X-Access-Code": code, "Content-Type": "application/json" } });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(body.error || res.statusText);
   return body;

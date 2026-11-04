@@ -21,8 +21,10 @@ def public_url(request: Request) -> str:
     """Base URL FreJun uses to reach this server.
 
     On Render, RENDER_EXTERNAL_URL is always the live service URL, so it wins over PUBLIC_URL
-    (a stale PUBLIC_URL pointing at a deleted service makes FreJun hang up on answer)."""
-    url = os.getenv("RENDER_EXTERNAL_URL") or os.getenv("PUBLIC_URL") or f"https://{request.headers.get('host')}"
+    (a stale PUBLIC_URL pointing at a deleted service makes FreJun hang up on answer).
+    PUBLIC_URL includes the base path when there is one (https://host/voicecall); the fallback adds it itself."""
+    url = (os.getenv("RENDER_EXTERNAL_URL") or os.getenv("PUBLIC_URL")
+           or f"https://{request.headers.get('host')}{request.scope.get('root_path', '')}")
     return url.rstrip("/")
 
 

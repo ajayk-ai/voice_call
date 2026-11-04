@@ -1,0 +1,16 @@
+.venv
+.git
+.github
+__pycache__
+*.py[oc]
+.pytest_cache
+.ruff_cache
+.env
+service.json
+tests
+docs
+scripts
+frontend/node_modules
+Dockerfile
+docker-compose.yml
+.dockerignore

@@ -1,0 +1,88 @@
+# docker compose up --build
+#   nginx: host port 8082 -> VOICE_DOMAIN (the costing project's nginx on port 80 forwards it here)
+#          Local default: http://scm.localhost (or http://localhost:8082)
+#          Server: VOICE_DOMAIN=scm.ai.bullmachine.in in .env
+#   web:   http://127.0.0.1:8001/voicecall/  (BASE_PATH; voice agent, admin, dashboard; loopback only)
+#   sync: Google Sheet -> PostgreSQL mirror (python -m backend.po_sync)
+# Secrets come from .env (copy .env.example); service.json is mounted read-only.
+# PO_DB_* are overridden below so the containers reach the db service, whatever .env says.
+
+x-app: &app
+  image: voice-call:latest
+  env_file: .env
+  environment:
+    # URL prefix: http://127.0.0.1:8001/voicecall/ (/ redirects there)
+    BASE_PATH: ${BASE_PATH:-/voicecall}
+    GOOGLE_SERVICE_ACCOUNT_FILE: /run/secrets/service.json
+    PO_DB_HOST: db
+    PO_DB_PORT: "5432"
+    PO_DB_USER: postgres
+    PO_DB_PASSWORD: ${PO_DB_PASSWORD:-postgres}
+    PO_DB_NAME: ${PO_DB_NAME:-pending_po}
+  volumes:
+    - ./service.json:/run/secrets/service.json:ro
+  depends_on:
+    db:
+      condition: service_healthy
+  restart: unless-stopped
+
+services:
+  web:
+    <<: *app
+    # Image: Python deps + main.py, backend/ and frontend/ (static HTML, no build step) in /app
+    build:
+      context: .
+      dockerfile: Dockerfile
+    working_dir: /app
+    # FastAPI: API, voice agent websockets and the frontend pages
+    command: ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port $${PORT:-8000}"]
+    ports:
+      # Loopback only (costing uses 8000); nginx is the public entry point
+      - "127.0.0.1:8001:8000"
+
+  # Same image as web (built once there)
+  sync:
+    <<: *app
+    working_dir: /app
+    # Google Sheet -> PostgreSQL mirror (no web server)
+    command: ["python", "-m", "backend.po_sync"]
+    healthcheck:
+      disable: true
+    depends_on:
+      db:
+        condition: service_healthy
+      web:
+        condition: service_started
+
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    depends_on:
+      - web
+    ports:
+      - "8082:80"
+    environment:
+      VOICE_DOMAIN: ${VOICE_DOMAIN:-scm.localhost}
+      BASE_PATH: ${BASE_PATH:-/voicecall}
+    volumes:
+      # Rendered to /etc/nginx/conf.d/default.conf with VOICE_DOMAIN
+      - ./deploy/nginx.conf.template:/etc/nginx/templates/default.conf.template:ro
+
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${PO_DB_PASSWORD:-postgres}
+      POSTGRES_DB: ${PO_DB_NAME:-pending_po}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./docker/initdb:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  pgdata:

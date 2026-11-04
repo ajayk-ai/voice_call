@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>PO Follow-up Admin</title>
-<link rel="stylesheet" href="/assets/ui.css">
+<link rel="stylesheet" href="assets/ui.css">
 <style>
   :root {
     --bg: #f4f6f8; --card: #fff; --fg: #1d242b; --muted: #5d6874; --line: #dde2e7; --soft: #eef1f4;
@@ -133,13 +133,13 @@
 </head>
 <body>
 <nav class="gnav" aria-label="Pages"><div class="gnav-in">
-    <a class="brand" href="/"><span class="mark" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 7l9-4 9 4-9 4-9-4z"/><path d="M3 7v10l9 4 9-4V7M12 11v10"/></svg></span><span class="word"><b>PO Agent</b><small>Supply chain follow-up</small></span></a>
+    <a class="brand" href="./"><span class="mark" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 7l9-4 9 4-9 4-9-4z"/><path d="M3 7v10l9 4 9-4V7M12 11v10"/></svg></span><span class="word"><b>PO Agent</b><small>Supply chain follow-up</small></span></a>
     <div class="links">
-      <a href="/dashboard">Dashboard</a>
-      <a href="/?tab=phone">Normal call</a>
-      <a href="/?tab=browser">Voice agent</a>
-      <a href="/admin" aria-current="page">Follow-up admin</a>
-      <a href="/docs" class="end">API docs</a>
+      <a href="dashboard">Dashboard</a>
+      <a href="./?tab=phone">Normal call</a>
+      <a href="./?tab=browser">Voice agent</a>
+      <a href="admin" aria-current="page">Follow-up admin</a>
+      <a href="docs" class="end">API docs</a>
     </div>
 </div></nav>
 <header>
@@ -414,7 +414,7 @@ function countdown(iso) {
 
 class Locked extends Error {}
 async function api(path, opts = {}) {
-  const res = await fetch("/admin/api" + path, { ...opts, headers: { "Content-Type": "application/json", "X-Admin-Code": code } });
+  const res = await fetch("admin/api" + path, { ...opts, headers: { "Content-Type": "application/json", "X-Admin-Code": code } });
   const data = await res.json().catch(() => ({}));
   // 503 locks the page only when the admin itself is unavailable (/state, /session), not for one slow action
   // such as a call while the voice server wakes up
@@ -537,7 +537,7 @@ function render(st) {
       + (st.scheduler ? ` Next: <b>${fmtTime(st.next_auto_run)}</b>.` : ` <span class="pill warn">scheduler not running</span>`);
   const only = set.pilot_mode || set.vendor_scope !== "all";
   $("autoSummary").innerHTML = autoText
-    + `<br>Vendors: <b>${only ? "selected only" : "all"}</b>` + (only ? ` (${esc(set.pilot_vendor_codes || "none selected")}) – chosen on the <a href="/dashboard${env === "test" ? "?env=test" : ""}#vendorsCard">dashboard</a>` : "")
+    + `<br>Vendors: <b>${only ? "selected only" : "all"}</b>` + (only ? ` (${esc(set.pilot_vendor_codes || "none selected")}) – chosen on the <a href="dashboard${env === "test" ? "?env=test" : ""}#vendorsCard">dashboard</a>` : "")
     + `<br>Pilot mode: <b>${set.pilot_mode ? "on" : "off"}</b>` + (set.pilot_mode ? ` (all messages to ${esc(set.pilot_mobile || "no number set")})` : " (messages go to real numbers)");
   $("nextrun").textContent = !set.auto_enabled ? "Automatic runs are off."
     : st.scheduler ? "Next automatic run: " + fmtTime(st.next_auto_run)

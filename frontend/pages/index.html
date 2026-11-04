@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>PO Voice Agent</title>
-<link rel="stylesheet" href="/assets/ui.css">
+<link rel="stylesheet" href="assets/ui.css">
 <style>
   :root {
     --bg: #f4f6f8; --card: #fff; --fg: #1d242b; --muted: #5d6874; --line: #dde2e7;
@@ -55,13 +55,13 @@
 </head>
 <body>
 <nav class="gnav" aria-label="Pages"><div class="gnav-in">
-    <a class="brand" href="/"><span class="mark" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 7l9-4 9 4-9 4-9-4z"/><path d="M3 7v10l9 4 9-4V7M12 11v10"/></svg></span><span class="word"><b>PO Agent</b><small>Supply chain follow-up</small></span></a>
+    <a class="brand" href="./"><span class="mark" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 7l9-4 9 4-9 4-9-4z"/><path d="M3 7v10l9 4 9-4V7M12 11v10"/></svg></span><span class="word"><b>PO Agent</b><small>Supply chain follow-up</small></span></a>
     <div class="links">
-      <a href="/dashboard">Dashboard</a>
-      <a href="/?tab=phone" id="nav-phone">Normal call</a>
-      <a href="/?tab=browser" id="nav-browser">Voice agent</a>
-      <a href="/admin">Follow-up admin</a>
-      <a href="/docs" class="end">API docs</a>
+      <a href="dashboard">Dashboard</a>
+      <a href="./?tab=phone" id="nav-phone">Normal call</a>
+      <a href="./?tab=browser" id="nav-browser">Voice agent</a>
+      <a href="admin">Follow-up admin</a>
+      <a href="docs" class="end">API docs</a>
     </div>
 </div></nav>
 <main>
@@ -209,7 +209,7 @@ async function start() {
 
   setStatus("Connecting to agent…");
   $("stop").disabled = false;  // a slow or hung connection can be cancelled
-  ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/test-ws");
+  ws = new WebSocket(new URL("test-ws", location.href).href.replace(/^http/, "ws"));  // relative: works under a base path
   ws.binaryType = "arraybuffer";
   ws.onopen = () => {
     ws.send(JSON.stringify({ type: "auth", code: $("password").value }));
@@ -261,7 +261,7 @@ function showTab(name) {
 $("tab-phone").onclick = () => showTab("phone");
 $("tab-browser").onclick = () => showTab("browser");
 const wantTab = new URLSearchParams(location.search).get("tab");
-if (location.pathname === "/test") showTab("browser");
+if (location.pathname.endsWith("/test")) showTab("browser");
 else if (wantTab === "phone" || wantTab === "browser") showTab(wantTab);
 else { let t = "phone"; try { t = localStorage.getItem("tab") || t; } catch (e) {} showTab(t); }
 
@@ -270,7 +270,7 @@ try { $("password").value = sessionStorage.getItem("access_code") || ""; } catch
 $("password").addEventListener("input", () => { try { sessionStorage.setItem("access_code", $("password").value); } catch (e) {} });
 
 // Explain features the server has switched off
-fetch("/api/status").then((r) => r.json()).then((st) => {
+fetch("api/status").then((r) => r.json()).then((st) => {
   $("phoneOff").hidden = st.phone_calls; $("callBtn").disabled = !st.phone_calls;
   $("agentOff").hidden = st.voice_agent; $("start").disabled = !st.voice_agent;
   if (!st.access_code_required) $("password").placeholder = "Not required on this server";
@@ -284,7 +284,7 @@ $("callForm").onsubmit = async (e) => {
   $("callBtn").disabled = true;
   result.className = ""; result.textContent = "Placing call…";
   try {
-    const res = await fetch("/api/call", {
+    const res = await fetch("api/call", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ to: $("to").value, password: $("password").value }),
