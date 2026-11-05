@@ -1,4 +1,4 @@
-# PO Agent – overdue purchase order follow-up
+# PO Agent
 
 Follows up overdue purchase-order lines automatically for the SCM team, from the "CE - Pending PO" Google Sheet:
 
@@ -18,41 +18,9 @@ Contents: [How it works](#how-it-works) · [Development](#development) · [Ubunt
 
 ## How it works
 
-```
- Google Sheet (users maintain Master, Phone_Master, ...)
-        │  po_sync: copies every tab, every 60 s (or before each run)
-        ▼
- PostgreSQL  pending_po (production)       pending_po_test (test: a copy you can edit)
-   sheets.*    the sheet tabs                sheets.*    copied from production
-   followup.*  tracker, logs, tasks, runs,   followup.*  its own state
-               daily overdue checks
-        │
-        ▼
- Web app (one FastAPI process: uvicorn main:app)
-   scheduler ── daily run ──► WhatsApp (UltraMsg) · voice agent call (FreJun ⇄ Gemini) · Google Meet
-   /dashboard   /admin   /   /webhooks/ultramsg (vendor replies)   /media (phone audio)
-```
+Each run is one overdue check of the PO Master, for the vendors chosen in Vendor Control:
 
-**Scenarios.** Each run checks Master once per check period (production: one IST day; the latest run of the day
-counts) and records which lines are overdue. The number of checks in a row a line has been overdue confirms its scenario:
-
-| Overdue checks in a row | Scenario | Who gets WhatsApp | Also |
-|---|---|---|---|
-| 1 (today only) | Scenario 1 | vendor planner + coordinator (Phone_Master Scenario 1, else Master) | |
-| 2 (also yesterday) | Scenario 2 | vendor management (Scenario 2) | |
-| 3 | Scenario 3 | buyer | row in `Call_Tasks`; the voice agent calls the Scenario 3 number |
-| 4 or more | Meeting | buyer + SCM HOD | row in `Meeting_Tasks` + Google Meet invite |
-
-- A check in which the line is not overdue breaks the streak; overdue again later starts at Scenario 1.
-  A day with no check (server off, holiday) neither counts nor breaks it.
-- Scenarios are never skipped: Scenario 2 goes out only once it is confirmed *and* Scenario 1 went out.
-- One message per vendor per scenario per day; `Alert_Log` dedupe keys stop repeats if a run is started twice.
-- On the first day there is no history, so every overdue line starts at Scenario 1.
-- The rules: `backend/po_followup/domain/overdue.py` (streaks) and `domain/escalation.py` (levels).
-
-**Two environments**, switched at the top of the admin page, each its own PostgreSQL database:
-
-| | Production (`pending_po`) | Test (`pending_po_test`) |
+| Check in a row with OD Days > 0 | Scenario | What happens |
 |---|---|---|
 | PO data | the Google Sheet, synced | a copy of production you can edit freely (pgAdmin) |
 | Check period | 1 day | 5 minutes, so a whole escalation can be watched quickly |
@@ -518,124 +486,56 @@ in PostgreSQL and override the defaults below.
 
 ## Using it
 
-**Dashboard** (`/dashboard`, business users): tabs **All overdue · Scenario 1 · Scenario 2 · Scenario 3 · Meeting**
-with counts. Per line: pending qty, due date, days late, the overdue streak (last 7 checks) and each scenario's
-status – Sent + date, Due now, Confirmed (waits for the previous scenario), On hold (pilot), Not yet + the date the
-next check would confirm it. Search, vendor / buyer / days-late filters, sortable columns, group by PO or all lines,
-CSV export of what is filtered, line details on click. Refreshes every 2 minutes; `?env=test` for test data.
+The app opens at `/`: choose **SCM User** or **Admin** and sign in.
 
-**Vendors to follow up** (bottom of the dashboard, production and `?env=test`):
-- **Which vendors the follow-up runs for**: *Selected vendors only* (default – start with 5–10) or *All vendors*.
-  Tick **Follow up** next to vendors (search by name, code or number; show Selected / With overdue lines / All),
-  then **Save selection**. Unticked vendors show *On hold* on the overdue list. Switching production to all vendors
-  asks you to type ALL. Pilot mode (admin) still sends every message to the pilot number, on top of this.
-- **Scenario 1 / 2 / 3 numbers** (Phone_Master): **Edit** per vendor (or from a line's details) and **Add vendor**.
-  Blank = use Master's numbers (Scenario 3 blank = Scenario 2's number); several numbers: separate with commas.
-- **Bulk**: **Download CSV** (every vendor: code, name, Follow up Yes/No, Scenario 1/2/3), change it in Excel,
-  then **Bulk upload** it (or paste rows from Excel). Missing columns and blank Follow up cells are left as they are;
-  an empty Scenario cell clears that number. Every row is checked and the changes previewed before *Apply*;
-  if any row is wrong nothing is saved.
+**SCM User** (`/dashboard`)
 
-Production numbers are saved to the Phone_Master tab of the Google Sheet first, then to the production copy, so the
-next run uses them; test changes go to the test database only. The selection is a setting of each environment
-(`pilot_vendor_codes`, `vendor_scope`). Anyone with the dashboard code can change both.
+| Tab | What it is for |
+|---|---|
+| 1 Vendor Master | Add vendors one at a time or upload a CSV (checked first; nothing is saved if a row is wrong). Numbers are 10-digit Indian mobiles. Scenario 4 holds the meeting e-mail ids. |
+| 2 Vendor Control | Tick particular vendors or choose All vendors, pick Live or Trial, set the repeat (default 1 day) or a daily time, and Start. Also Stop, Run once now and recent runs. |
+| 3 Trace | Only the chosen vendors: the scenario each is at and when it goes back to Scenario 1, purchasing groups, last call, failed deliveries, and the full timeline on click. Filter by purchasing group, buyer, days late, call result or delivery, and download the filtered list. |
+| 4 Call Results | Scenario 3 calls: transcript, delay reasons, committed dates, CSV download. |
 
-**Admin** (`/admin`): **Overview** (health, run now: Preview / Dry / Live, run history), **Vendor trace**
-(Scenario 1 → 2 → 3 → meeting timeline per vendor, every message, numbers used), **Test a vendor**,
-**Settings** (schedule, check period, pilot, numbers), **Data & logs**. Live production runs and automatic live
-sending must be confirmed by typing LIVE.
+**Admin** (`/admin`), user id `ADMIN_USERNAME` and password `APP_PASSWORD`
 
-**Test a vendor** (Test environment): pick a vendor, enter your WhatsApp number and a check period (e.g. 1 minute),
-Start. It resets that vendor's test history, sends Scenario 1 at once, and the scheduler moves it to Scenario 2, 3
-and the meeting one period apart. Every message starts with "PILOT TEST – real recipient would be: …".
+- **System tests**: a live connection check, then a real WhatsApp message, voice call and Google Meet invite to you.
+- **Users**: create SCM users, reset passwords, switch users off, activity log.
 
-**Voice agent** (`/`): **Normal call** rings a number from the FreJun number; **Voice agent** talks in the browser.
-Change what the agent says in `backend/voice_agent/prompts.py`.
+## Setup
 
-**Reliability built in**: one run at a time per environment across processes (PostgreSQL advisory lock); failed
-automatic runs retried 3× 10 minutes apart; `Alert_Log` written after each vendor; runs interrupted by a crash
-marked failed within a minute; timeouts on PostgreSQL, Google and UltraMsg calls; a Health card on the admin page.
-
----
-
-## Command line
+Needs Python 3.14, PostgreSQL, a Google service account with domain-wide delegation (Sheets and
+`https://www.googleapis.com/auth/calendar.events`), Gemini, FreJun (Teler) and UltraMsg accounts.
 
 ```bash
-python -m backend.po_followup admin [--port 8100]              # web app on 127.0.0.1 + scheduler
-python -m backend.po_followup run --env test --mode preview    # one run now (env prod|test, mode preview|dry|live)
-python -m backend.po_followup scheduler                        # scheduler without the web app
-python -m backend.po_followup copy-prod-to-test                # refresh test data from production
-python -m backend.po_followup setup-tabs                       # create missing tracking tabs in the Google Sheet
-python -m backend.po_followup build-phone-master               # create Phone_Master from Master's vendors
-python -m backend.po_sync [--once]                             # Google Sheet -> PostgreSQL mirror
-python scripts/make_call.py                                    # ring MY_PHONE_NUMBER with the agent
+cp .env.example .env      # fill in the first block
+uv sync --all-extras
+uv run uvicorn main:app --port 8082
+uv run python -m backend.po_sync          # the Google Sheet mirror, in a second terminal
+uv run pytest -q
 ```
 
-The sheet mirror (`backend.po_sync`) writes one table per tab in schema `sheets` (`sheets.master`,
-`sheets.phone_master`, …; cleaned-up column names, original header as the column comment, all TEXT plus
-`sheet_row`) and `public.sync_state` (rows, last sync, last error per tab). Only changed tabs are rewritten, each in
-one transaction.
+First time only, if the sheet has no tracking tabs: `python -m backend.po_followup setup-tabs`, and
+`python -m backend.po_followup build-phone-master` if it has no Phone_Master tab.
 
----
+FreJun must reach the app over https, so `PUBLIC_URL` is your domain or a tunnel:
+`cloudflared tunnel --url http://localhost:8082`. A quick tunnel's address changes on every restart.
+
+Deployment with Docker: see [DEPLOY.md](DEPLOY.md). Every setting is listed in [.env.example](.env.example).
 
 ## Project layout
-Backend (one Python package) and frontend (HTML/CSS served by the backend) are kept apart:
+
 ```
-main.py                      # entry point: uvicorn main:app
-backend/
-  core/                      # env (.env + OS certificates), google_auth, tracing, frontend paths
-  voice_agent/               # the FastAPI app: app.py, config, prompts, Gemini, audio, security, call tickets
-    routes/                  #   pages (/, /health, /api/status), calls (/api/call, FreJun), media (WS /media), browser
-  po_followup/
-    api/                     #   HTTP routers: admin, dashboard, replies (vendor WhatsApp webhook)
-    models/                  #   Pydantic request/response models
-    domain/                  #   pure rules: overdue (streaks), escalation (levels), messages
-    services/                #   run (one daily run), followup (runs, settings, scheduler), trace, dashboard
-    integrations/            #   Google Sheets, UltraMsg, Google Meet, voice agent calls
-    db/store.py              #   PostgreSQL storage, one database per environment
-    config.py, cli.py
-  po_sync/                   # Google Sheet -> PostgreSQL mirror
-frontend/
-  pages/                     # index.html, admin.html, dashboard.html
-  assets/ui.css              # shared fonts, top bar, typography (served at /assets)
-scripts/make_call.py
-tests/                       # pytest, one folder per module
+main.py                       entry point (uvicorn main:app)
+backend/core/                 .env loading, Google credentials, tracing, page files
+backend/po_sync/              Google Sheet -> PostgreSQL mirror
+backend/po_followup/
+  api/                        admin, dashboard and vendor reply routes
+  domain/                     escalation rules and messages (no I/O)
+  integrations/               WhatsApp, voice call, Google Meet, Google Sheet
+  services/                   run, scheduler, vendor master, trace, calls, users, system tests
+  db/store.py                 PostgreSQL storage
+backend/voice_agent/          FreJun call handling and the Gemini Live bridge
+frontend/pages/               login, SCM user and admin pages
+frontend/assets/              app.css, app.js and one script per page
 ```
-Conventions: routers in `api/` stay thin and call `services/`; `domain/` does no I/O; request/response shapes live
-in `models/`; everything a browser loads lives in `frontend/`; imports are absolute (`from backend.core import env`).
-
----
-
-## Monitoring
-
-`GET /health` for uptime checks. The admin Overview shows the scheduler heartbeat, failing automatic runs and stuck runs.
-
-LangSmith (optional): set `LANGSMITH_TRACING=true` and `LANGSMITH_API_KEY`. Tracing is off without a key, and a
-LangSmith outage never affects calls or runs.
-
-| Trace | Shows |
-|---|---|
-| `phone_call` / `browser_session` | each turn (vendor said → agent said), Gemini tokens, response latency, interruptions |
-| `place_call`, `call_status` | FreJun call creation and hang-up reasons |
-| `po_followup_daily_run` | per vendor/scenario: lines, recipients, send status; totals |
-
-Phone numbers are masked in traces; call transcripts and WhatsApp texts are sent as they are.
-
----
-
-## Troubleshooting
-
-| Symptom | Fix |
-|---|---|
-| Admin / dashboard: "Admin unavailable: PostgreSQL driver not installed" | install `psycopg[binary]` (Render has none – see Option B) |
-| Admin / dashboard: "database not reachable" | PostgreSQL running? `PO_DB_*` correct? The page retries by itself |
-| "Set ADMIN_PASSWORD on the server …" (403) | behind a proxy or from another machine, a code is required |
-| Dashboard shows every line at Scenario 1 | no earlier checks yet – they build up one per day |
-| No automatic runs | admin → Settings: automatic on? `FOLLOWUP_SCHEDULER` not false? The Health card shows the heartbeat |
-| No ring | `TELER_API_KEY`; `FREJUN_PHONE_NUMBER` and the target in +91… format |
-| Call connects, then drops ("Failed to fetch call flow") | server asleep (Render free) or wrong public URL; on Render don't set `PUBLIC_URL` |
-| Call connects, silence; log "missing or invalid call ticket" | the machine placing the call and the server streaming it need the same `TELER_API_KEY` and current code |
-| Agent silent | `GEMINI_API_KEY`; look for "Stream error" in the logs |
-| "Wrong access code" | must match `APP_PASSWORD` / `ADMIN_PASSWORD` / `DASHBOARD_PASSWORD` on that server |
-| SSL / certificate errors on an office network | the app uses the OS certificate store (truststore); install the company root CA in Windows |
-| WhatsApp FAILED in Alert_Log | UltraMsg token / instance; bad numbers show as INVALID_MOBILE – fix them in Phone_Master |

@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PO Agent · Sign in</title>
+<link rel="stylesheet" href="assets/app.css">
+</head>
+<body>
+<main class="login-page">
+  <div class="login">
+    <div class="brand"><i>PO</i>PO Agent</div>
+    <form class="card" id="form">
+      <div class="card-b">
+        <h1>Sign in</h1>
+        <div class="roles" role="group" aria-label="Sign in as">
+          <button type="button" class="role" data-role="scm" aria-pressed="true"><b>SCM User</b><span>Vendors, follow-up and trace</span></button>
+          <button type="button" class="role" data-role="admin" aria-pressed="false"><b>Admin</b><span>System tests and users</span></button>
+        </div>
+        <label class="field">User id<input id="user" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" required></label>
+        <label class="field">Password<input id="pass" type="password" autocomplete="current-password" required></label>
+        <div class="note bad" id="err" role="alert" hidden></div>
+        <button type="submit" class="primary lg" id="go">Sign in</button>
+      </div>
+    </form>
+  </div>
+</main>
+<script src="assets/app.js"></script>
+<script>
+"use strict";
+const existing = Session.get();
+if (existing) location.replace(Session.home(existing.role));
+let role = "scm";
+document.querySelectorAll("[data-role]").forEach((b) => b.onclick = () => {
+  role = b.dataset.role;
+  document.querySelectorAll("[data-role]").forEach((x) => x.setAttribute("aria-pressed", x === b));
+  $("err").hidden = true; $("user").focus();
+});
+$("form").onsubmit = async (e) => {
+  e.preventDefault();
+  $("go").disabled = true; $("err").hidden = true;
+  try {
+    const res = await fetch("dashboard/auth/login", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ role, username: $("user").value, password: $("pass").value }) });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.error || "Could not sign in.");
+    Session.set({ token: body.token, role: body.role === "admin" ? "admin" : "scm", name: body.display_name || body.username });
+    location.replace(Session.home(role));
+  } catch (err) {
+    $("err").textContent = err.message === "Failed to fetch" ? "Could not reach the server." : err.message; $("err").hidden = false; $("pass").value = ""; $("pass").focus();
+  } finally { $("go").disabled = false; }
+};
+$("user").focus();
+</script>
+</body>
+</html>

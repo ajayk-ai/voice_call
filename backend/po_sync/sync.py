@@ -26,6 +26,7 @@ import psycopg
 from psycopg import sql
 
 from backend.core import google_auth
+from backend.core.env import env_int
 
 log = logging.getLogger("po_sync")
 
@@ -34,7 +35,7 @@ log = logging.getLogger("po_sync")
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 SCHEMA = "sheets"
 MAX_IDENTIFIER = 63  # PostgreSQL identifier length limit
-MAX_BACKOFF_SECONDS = 15 * 60
+MAX_BACKOFF_SECONDS = env_int("PO_SYNC_MAX_BACKOFF_SECONDS", 15 * 60)
 
 
 def require_env(name: str) -> str:

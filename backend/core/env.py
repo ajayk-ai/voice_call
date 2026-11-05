@@ -16,6 +16,11 @@ load_dotenv()
 
 log = logging.getLogger("common.env")
 
+from zoneinfo import ZoneInfo  # noqa: E402
+
+# Business time zone: IST days, run times and dates shown on the dashboard (.env BUSINESS_TIMEZONE)
+TIMEZONE = ZoneInfo(os.getenv("BUSINESS_TIMEZONE", "Asia/Kolkata").strip() or "Asia/Kolkata")
+
 
 def env_bool(name: str, default: bool) -> bool:
     value = os.getenv(name)

@@ -9,6 +9,8 @@ Rules:
   overdue in 1 daily check -> Scenario 1, 2 checks in a row -> Scenario 2, 3 -> Scenario 3, 4+ -> meeting).
   Levels are never skipped: Scenario 2 goes out only after Scenario 1 did.
   0 vendor alert -> 1 vendor management -> 2 buyer call task -> 3 management meeting.
+- FOLLOWUP_CYCLE_DAYS (7) days after a vendor reaches Scenario 4, all its open lines go back to Scenario 1
+  (cycle_resets). A vendor that has not reached Scenario 4 keeps climbing.
 - Lines are grouped per vendor and level: one message per vendor per level per day.
 - A tracked line that is no longer pending in Master is CLEARED.
 """
@@ -244,6 +246,44 @@ def build_groups(master_records: list[dict], tracker_records: list[dict], now: d
     return out
 
 
+# ---------- the vendor's cycle ----------
+
+def cycle_starts(tracker_records: list[dict]) -> dict[str, date]:
+    """Vendor code -> the day its current Scenario 1-4 cycle began: the earliest First Alert Date of its open lines."""
+    out: dict[str, date] = {}
+    for t in tracker_records:
+        code, first = txt(t.get("Vendor Code")), parse_date(t.get("First Alert Date"))
+        if code and first and not re.search(r"CLEARED", txt(t.get("Status")), re.I):
+            out[code] = min(first, out.get(code, first))
+    return out
+
+
+def meeting_dates(tracker_records: list[dict]) -> dict[str, date]:
+    """Vendor code -> the day it reached Scenario 4: the earliest of its open lines at that level. The earliest, so
+    lines that arrive later cannot keep pushing the vendor's restart away."""
+    out: dict[str, date] = {}
+    for t in tracker_records:
+        code, reached = txt(t.get("Vendor Code")), parse_date(t.get("Last Alert Date"))
+        level = re.search(r"\d+", txt(t.get("Escalation Level")))
+        if code and reached and level and int(level.group()) == MAX_LEVEL and not re.search(r"CLEARED", txt(t.get("Status")), re.I):
+            out[code] = min(reached, out.get(code, reached))
+    return out
+
+
+def cycle_resets(tracker_records: list[dict], run_date: date, cycle_days: int, vendor_codes: frozenset[str] | None,
+                 timestamp: str) -> list[dict]:
+    """Line_Tracker updates that send the open lines of every vendor `cycle_days` past Scenario 4 back to the start.
+    Vendors not in `vendor_codes` (None: every vendor is followed up) wait until they are chosen again."""
+    over = {code for code, reached in meeting_dates(tracker_records).items()
+            if (run_date - reached).days >= cycle_days and (vendor_codes is None or code in vendor_codes)}
+    return [{"Line Key": txt(t.get("Line Key")), "Vendor Code": txt(t.get("Vendor Code")),
+             "Vendor Name": txt(t.get("Vendor Name")), "Escalation Level": "", "Last Alert Type": "",
+             "Last Alert Date": "", "Last Alert At": "", "First Alert Date": "", "Status": "OPEN", "Updated At": timestamp}
+            for t in tracker_records
+            if txt(t.get("Vendor Code")) in over and txt(t.get("Line Key"))
+            and not re.search(r"CLEARED", txt(t.get("Status")), re.I)]
+
+
 # ---------- 03c Detect Cleared Lines ----------
 
 def detect_cleared(master_records: list[dict], tracker_records: list[dict], run_date: date, timestamp: str) -> list[dict]:
@@ -324,9 +364,9 @@ def alert_key(vendor_code: str, level: int, run_iso: str) -> str:
     return f"{vendor_code}|L{level}|{alert_type(level) if level <= MAX_LEVEL else 'MAX'}|{run_iso}"
 
 
-def select_alerts(groups: list[dict], sent_keys_today: set[str], pilot_mode: bool, pilot_vendor_codes: set[str]) -> list[dict]:
+def select_alerts(groups: list[dict], sent_keys_today: set[str], vendor_codes: frozenset[str] | None) -> list[dict]:
     """Attach alertType/alertKey, then drop: levels out of range, keys already in today's Alert_Log,
-    repeat vendor+level groups, and (when `pilot_mode`: only selected vendors) vendors not in the list."""
+    repeat vendor+level groups, and vendors not in `vendor_codes` (None: every vendor is followed up)."""
     seen = set()
     out = []
     for g in groups:
@@ -339,7 +379,7 @@ def select_alerts(groups: list[dict], sent_keys_today: set[str], pilot_mode: boo
         if (g["vendorCode"], level) in seen:
             continue
         seen.add((g["vendorCode"], level))
-        if pilot_mode and txt(g["vendorCode"]) not in pilot_vendor_codes:
+        if vendor_codes is not None and txt(g["vendorCode"]) not in vendor_codes:
             continue
         out.append(g)
     return out
@@ -361,11 +401,20 @@ def recipients_from(raw: str, role: str, vendor_name: str, label: str, fallback_
     return out or [{"role": role, "name": fallback_name, "rawMobile": ""}]
 
 
-def normalize_mobile(raw: str, pilot_mode: bool, pilot_mobile: str) -> str:
+def normalize_mobile(raw: str) -> str:
     """First number in the cell, digits only, no leading zeros, 10-digit Indian numbers get 91."""
-    source = pilot_mobile if pilot_mode else raw
-    digits = re.sub(r"\D", "", (split_numbers(str(source or "")) or [""])[0]).lstrip("0")
+    digits = re.sub(r"\D", "", (split_numbers(str(raw or "")) or [""])[0]).lstrip("0")
     return "91" + digits if len(digits) == 10 else digits
+
+
+def indian_mobile(raw) -> str | None:
+    """The 10-digit Indian mobile number in `raw` (a +91 or 0 in front is dropped), or None if it is not one."""
+    digits = re.sub(r"\D", "", str(raw if raw is not None else ""))
+    if len(digits) == 12 and digits.startswith("91"):
+        digits = digits[2:]
+    elif len(digits) == 11 and digits.startswith("0"):
+        digits = digits[1:]
+    return digits if re.fullmatch(r"[6-9]\d{9}", digits) else None
 
 
 def is_valid_mobile(mobile: str) -> bool:

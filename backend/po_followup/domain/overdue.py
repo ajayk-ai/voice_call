@@ -11,6 +11,7 @@ A line's *streak* is the number of checks in a row, newest first, in which it wa
 
 The streak confirms the scenario: 1 -> Scenario 1, 2 -> Scenario 2, 3 -> Scenario 3, 4 or more -> management
 meeting. A period in which no check ran (server off, holiday) neither counts nor breaks the streak.
+Only checks of the line's current cycle count, so a vendor sent back to Scenario 1 climbs one scenario per check again.
 """
 
 from datetime import datetime, timedelta
@@ -50,14 +51,17 @@ def overdue_now(master_records: list[dict]) -> dict[str, dict]:
     return out
 
 
-def streaks(checks: list[tuple[datetime, set[str]]], keys) -> dict[str, int]:
+def streaks(checks: list[tuple[datetime, set[str]]], keys, since: dict[str, datetime] | None = None) -> dict[str, int]:
     """Consecutive overdue checks per line. `checks`: (period start, overdue line keys), newest first; the
-    newest is the current check. Counting stops at the first check the line was not overdue in."""
+    newest is the current check. Counting stops at the first check the line was not overdue in, or before
+    the line's start in `since`."""
+    since = since or {}
     out = {}
     for key in keys:
         n = 0
-        for _, overdue in checks:
-            if key not in overdue:
+        start = since.get(key)
+        for period, overdue in checks:
+            if key not in overdue or (start and period < start):
                 break
             n += 1
         out[key] = n

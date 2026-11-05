@@ -2,7 +2,7 @@ import numpy as np
 
 from backend.po_sync.sync import build_tab, unique_names
 from backend.voice_agent.audio import Downsampler
-from backend.voice_agent.security import RateLimiter, mask_number
+from backend.voice_agent.security import mask_number
 
 
 def test_downsampler_reduces_rate_by_three():
@@ -18,11 +18,6 @@ def test_downsampler_is_continuous_across_chunks():
     split = d.process(tone[:3001 * 2]) + d.process(tone[3001 * 2 :])
     assert whole == split
 
-
-def test_rate_limiter():
-    limiter = RateLimiter(limit=2, window_seconds=60)
-    assert [limiter.allow("a") for _ in range(3)] == [True, True, False]
-    assert limiter.allow("b")
 
 
 def test_mask_number():

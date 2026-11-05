@@ -14,7 +14,7 @@ import logging
 import os
 import re
 import time
-from datetime import datetime, timezone
+from datetime import datetime
 
 from backend.core import env  # noqa: F401 - loads .env before LANGSMITH_* is read
 
@@ -66,10 +66,6 @@ def flush() -> None:
         get_cached_client().flush()
     except Exception as e:
         log.warning("LangSmith flush failed: %s", e)
-
-
-def _now() -> datetime:
-    return datetime.now(timezone.utc)
 
 
 class SessionTrace:

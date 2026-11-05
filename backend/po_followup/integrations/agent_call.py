@@ -1,7 +1,9 @@
-"""Scenario 3: the voice agent rings the vendor through FreJun (same call path as the web page's 'Normal call')."""
+"""Scenario 3: the voice agent rings the vendor through FreJun."""
 
 import asyncio
 import os
+
+from backend.core.env import env_int
 
 
 class AgentCallNotConfigured(RuntimeError):
@@ -9,25 +11,30 @@ class AgentCallNotConfigured(RuntimeError):
 
 
 def server_url() -> str:
-    """Base URL FreJun calls back on when the call is answered (/flow, /media); same order as bridge.public_url."""
-    url = os.getenv("RENDER_EXTERNAL_URL") or os.getenv("PUBLIC_URL")
+    """Base URL FreJun calls back on when the call is answered (/flow, /media); same as bridge.public_url."""
+    url = os.getenv("PUBLIC_URL")
     if not url:
-        raise AgentCallNotConfigured("Set PUBLIC_URL (or run on Render) so FreJun can reach the voice agent")
+        raise AgentCallNotConfigured("Set PUBLIC_URL so FreJun can reach the voice agent")
     return url.rstrip("/")
 
 
-def call_script(g: dict, max_lines: int = 15) -> str:
-    """Signed call_context token with the vendor's name and its overdue lines (worst first)."""
+def script_lines(g: dict, max_lines: int = 15) -> list[dict]:
+    """The overdue lines the agent is given, worst first."""
+    return [{"po": l["poNumber"], "item": l["poItem"], "desc": l["desc"], "due": l["dueText"],
+             "pending": l["pending"], "uom": l["uom"], "od": l["od"]}
+            for l in sorted(g["lines"], key=lambda l: -l["od"])[:max_lines]]
+
+
+def call_script(g: dict, max_lines: int = 15, key: str = "") -> str:
+    """Signed call_context token with the vendor's name and its overdue lines (worst first).
+    `key`: the call's row, where its transcript and analysis are saved (services.calls)."""
     from backend.voice_agent import call_context
 
-    lines = [{"po": l["poNumber"], "item": l["poItem"], "desc": l["desc"], "due": l["dueText"],
-              "pending": l["pending"], "uom": l["uom"], "od": l["od"]}
-             for l in sorted(g["lines"], key=lambda l: -l["od"])[:max_lines]]
-    return call_context.encode(g["vendorLabel"], g["vendorName"], g["vendorCode"], lines)
+    return call_context.encode(g["vendorLabel"], g["vendorName"], g["vendorCode"], script_lines(g, max_lines), key)
 
 
-# A sleeping Render free instance takes ~40 s to wake; FreJun would otherwise ring with nobody on the line
-WAKE_TIMEOUT_SECONDS = 90
+# Time allowed for the server to answer the wake-up request before the call is placed
+WAKE_TIMEOUT_SECONDS = env_int("CALL_WAKE_TIMEOUT_SECONDS", 90)
 
 
 def check_stream_server(base: str) -> None:
@@ -47,6 +54,19 @@ def check_stream_server(base: str) -> None:
         raise AgentCallNotConfigured(
             f"The voice agent server at PUBLIC_URL ({base}) runs older code without vendor call scripts, so the "
             "agent would read the fixed sample script. Deploy the latest code there. Call not placed.")
+
+
+def hang_up(call_id: str) -> None:
+    """End a ringing or connected call."""
+    from teler import AsyncClient
+
+    from backend.voice_agent.config import TELER_API_KEY, TELER_TIMEOUT_SECONDS
+
+    async def end():
+        async with AsyncClient(api_key=TELER_API_KEY, timeout=TELER_TIMEOUT_SECONDS) as client:
+            await client.voice.mutations.hangup(call_id)
+
+    asyncio.run(end())
 
 
 class AgentCaller:

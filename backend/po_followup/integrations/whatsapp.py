@@ -4,7 +4,9 @@ import re
 
 import httpx
 
-TIMEOUT_SECONDS = 20
+from backend.core.env import env_int
+
+TIMEOUT_SECONDS = env_int("WHATSAPP_TIMEOUT_SECONDS", 20)
 
 
 def mask_token(text: str) -> str:

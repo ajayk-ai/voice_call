@@ -9,7 +9,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from backend.core.tracing import SessionTrace, mask_phones
 
-from backend.voice_agent import call_context
+from backend.voice_agent import call_context, call_log
 from backend.voice_agent.audio import Downsampler
 from backend.voice_agent.bridge import new_session_id, run_bridge, safe_close
 from backend.voice_agent.config import GEMINI_MODEL, GEMINI_VOICE
@@ -57,11 +57,13 @@ async def media(call_ws: WebSocket):
     )
     recorder = TurnRecorder(trace)
     stats = {"frejun_events": [], "malformed_messages": 0, "caller_frame_ms": None}
+    transcript: list[dict] = []  # who said what, saved with the call (call_log)
     error = None
 
     try:
         async with gemini_client().aio.live.connect(model=GEMINI_MODEL, config=config) as session:
             log.info("[%s] Gemini Live connected: %s", sid, GEMINI_MODEL)
+            await call_log.call_started(context)
             await session.send_realtime_input(text=greeting)
 
             async def call_to_gemini():
@@ -131,6 +133,10 @@ async def media(call_ws: WebSocket):
                     if completed:
                         user, assistant = completed
                         if user:
+                            transcript.append({"role": "vendor", "text": user})
+                        if assistant:
+                            transcript.append({"role": "agent", "text": assistant})
+                        if user:
                             log.info("[%s] user: %s", sid, user)
                         if assistant:
                             log.info("[%s] assistant (replied after %s ms): %s", sid, recorder.last_reply_ms, assistant)
@@ -145,3 +151,8 @@ async def media(call_ws: WebSocket):
         await safe_close(call_ws)
         trace.end(outputs={"interruptions": recorder.interruptions, **stats}, error=error)
         log.info("[%s] call session closed", sid)
+        # Words spoken in a turn that was cut off by the hang-up are still worth keeping
+        for who, text in (("vendor", recorder.heard.strip()), ("agent", recorder.said.strip())):
+            if text:
+                transcript.append({"role": who, "text": text})
+        await call_log.call_ended(context, transcript, error)

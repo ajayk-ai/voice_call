@@ -3,48 +3,27 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from backend.voice_agent import security
 from backend.voice_agent.app import app
 
 client = TestClient(app)
 
 
-@pytest.fixture
-def password(monkeypatch):
-    monkeypatch.setattr(security, "APP_PASSWORD", "secret")
-    return "secret"
+
 
 
 def test_health_and_page():
     assert client.get("/health").status_code == 200
     page = client.get("/")
-    assert page.status_code == 200 and "Normal call" in page.text
+    assert page.status_code == 200 and "SCM User" in page.text and "Admin" in page.text and "Normal call" not in page.text
 
 
-def test_call_rejects_bad_json():
-    r = client.post("/api/call", content="xx", headers={"Content-Type": "application/json"})
-    assert r.status_code == 400
 
-
-def test_call_rejects_wrong_code(password):
-    r = client.post("/api/call", json={"to": "+919999999999", "password": "nope"})
-    assert r.status_code == 401
-
-
-def test_call_rejects_bad_number(password):
-    r = client.post("/api/call", json={"to": "12345", "password": password})
-    assert r.status_code == 400
 
 
 def test_flow_returns_stream_action():
     body = client.post("/flow", json={}).json()
     assert body["action"] == "stream" and body["ws_url"].endswith("/media")
 
-
-def test_browser_ws_rejects_wrong_code(password):
-    with client.websocket_connect("/test-ws") as ws:
-        ws.send_json({"type": "auth", "code": "nope"})
-        assert ws.receive_json() == {"type": "error", "text": "Wrong access code."}
 
 
 def test_ultramsg_webhook_secret_and_filtering(monkeypatch):
@@ -174,3 +153,91 @@ def test_phone_audio_goes_out_in_whole_20ms_packets(teler_key, monkeypatch):
     assert sizes and all(s % media.FRAME_BYTES == 0 for s in sizes), sizes
     total_in = sum((1001, 517, 4099, 2333)) / 3 * 2  # 24 kHz -> 8 kHz bytes
     assert abs(sum(sizes) - total_in) < media.FRAME_BYTES + 10  # nothing lost, at most one packet of padding
+
+
+def test_vendor_call_transcript_is_handed_over_when_the_call_ends(teler_key, monkeypatch):
+    """A call placed with a record key saves who said what, in order, even for the turn cut off by the hang-up."""
+    import json
+    from contextlib import asynccontextmanager
+    from types import SimpleNamespace as NS
+
+    from backend.voice_agent import call_log
+    from backend.voice_agent.routes import media
+
+    def sc(**k):
+        base = dict(interrupted=False, generation_complete=False, turn_complete=False,
+                    input_transcription=None, output_transcription=None)
+        return NS(**{**base, **k})
+
+    say = lambda **k: NS(data=None, server_content=sc(**k), usage_metadata=None)  # noqa: E731
+    replies = [
+        say(output_transcription=NS(text="Hello, is this dispatch?"), turn_complete=True),
+        say(input_transcription=NS(text="Haan ji, "), output_transcription=None),
+        say(input_transcription=NS(text="Ramesh bol raha hoon"), turn_complete=False),
+        say(output_transcription=NS(text="Thank you Ramesh."), turn_complete=True),
+        say(input_transcription=NS(text="PO 4500 in production")),  # hung up mid-turn: never completed
+    ]
+
+    class Session:
+        passes = 0
+
+        async def send_realtime_input(self, **k):
+            pass
+
+        async def receive(self):
+            Session.passes += 1
+            if Session.passes == 1:
+                for r in replies:
+                    yield r
+
+    @asynccontextmanager
+    async def connect(**k):
+        yield Session()
+
+    started, ended = [], []
+
+    async def call_started(ctx):
+        started.append(ctx["key"])
+
+    async def call_ended(ctx, transcript, error):
+        ended.append((ctx["key"], transcript, error))
+
+    monkeypatch.setattr(media, "gemini_client", lambda: NS(aio=NS(live=NS(connect=connect))))
+    monkeypatch.setattr(call_log, "call_started", call_started)
+    monkeypatch.setattr(call_log, "call_ended", call_ended)
+    ctx = teler_key.encode("ACME (400200)", "ACME", "400200", [], "k123")
+    with client.websocket_connect(f"/media?ticket={teler_key.ticket()}&ctx={ctx}") as ws:
+        try:
+            while True:
+                json.loads(ws.receive_text())
+        except Exception:
+            pass
+    assert started == ["k123"]
+    [(key, transcript, error)] = ended
+    assert (key, error) == ("k123", None)
+    assert transcript[0] == {"role": "agent", "text": "Hello, is this dispatch?"}
+    assert {"role": "vendor", "text": "Haan ji, Ramesh bol raha hoon"} in transcript
+    assert transcript[-1] == {"role": "vendor", "text": "PO 4500 in production"}
+
+
+def test_call_log_does_nothing_for_calls_without_a_record_key():
+    import asyncio
+
+    from backend.voice_agent import call_log
+
+    asyncio.run(call_log.call_started(None))
+    asyncio.run(call_log.call_ended({"vendor": "sample"}, [{"role": "vendor", "text": "x"}], None))  # must not touch a database
+
+
+def test_a_call_answered_during_the_emergency_stop_is_hung_up(monkeypatch):
+    from backend.po_followup.db import store
+
+    monkeypatch.setattr(store, "emergency_on", lambda: True)
+    assert client.post("/flow", json={}).json() == {"action": "hangup"}
+
+
+def test_a_server_without_the_database_still_answers_calls(monkeypatch):
+    from backend.po_followup.db import store
+
+    monkeypatch.setattr(store, "emergency_on", lambda: (_ for _ in ()).throw(RuntimeError("no database")))
+    assert client.post("/flow", json={}).json()["action"] == "stream"

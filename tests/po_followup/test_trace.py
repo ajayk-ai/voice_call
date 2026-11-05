@@ -2,14 +2,11 @@
 
 from datetime import datetime, timedelta
 
-from fastapi.testclient import TestClient
 
-from backend.po_followup.api import admin
 from backend.po_followup.services import trace
-from backend.po_followup.services.run import ZONE
-from backend.voice_agent.app import app
+from backend.core.env import TIMEZONE
 
-NOW = datetime(2026, 10, 9, 10, 0, tzinfo=ZONE)
+NOW = datetime(2026, 10, 9, 10, 0, tzinfo=TIMEZONE)
 PERIOD = 1  # check period in minutes (test environment style)
 
 
@@ -51,16 +48,16 @@ def test_all_done_and_failed_messages_stay_on_their_step():
     steps = trace.journey(3, NOW, [log(1, NOW, "FAILED"), log(1, NOW, "SENT")], PERIOD, NOW)
     assert all(s["state"] == "done" for s in steps)
     assert [m["status"] for m in steps[1]["messages"]] == ["SENT", "FAILED"]  # newest first
-    assert "All steps done" in trace.next_step_note(steps, 4, True, {"pilot_mode": True}, None)
+    assert "All steps done" in trace.next_step_note(steps, 4, True, {"vendor_scope": "selected"}, None)
 
 
-def test_next_note_explains_pilot_skip_and_no_lines():
+def test_next_note_explains_unchosen_vendor_and_no_lines():
     steps = trace.journey(None, None, [], PERIOD, NOW)
-    assert "not selected" in trace.next_step_note(steps, 3, False, {"pilot_mode": True}, None)
+    assert "not selected" in trace.next_step_note(steps, 3, False, {"vendor_scope": "selected"}, None)
     assert "not selected" in trace.next_step_note(steps, 3, False, {"vendor_scope": "selected"}, None)
     assert "not selected" not in trace.next_step_note(steps, 3, False, {"vendor_scope": "all"}, None)
-    assert "No pending lines" in trace.next_step_note(steps, 0, True, {"pilot_mode": True}, None)
-    assert "due now" in trace.next_step_note(steps, 3, True, {"pilot_mode": True, "auto_enabled": True}, NOW)
+    assert "No pending lines" in trace.next_step_note(steps, 0, True, {"vendor_scope": "selected"}, None)
+    assert "due now" in trace.next_step_note(steps, 3, True, {"vendor_scope": "selected", "auto_enabled": True}, NOW)
 
 
 def test_index_vendors_and_contacts_fallback():
@@ -77,12 +74,49 @@ def test_index_vendors_and_contacts_fallback():
     assert c["source"] == "Phone_Master" and c["scm_hod_mobile"] == "9222222222"
 
 
-def test_vendor_test_request_validation(monkeypatch):
-    monkeypatch.setenv("ADMIN_PASSWORD", "adm")
-    monkeypatch.setattr(admin, "_ready", True)
-    client = TestClient(app)
-    h = {"X-Admin-Code": "adm"}
-    assert client.post("/admin/api/test/vendor-test", json={"vendor_code": "1", "mobile": "9876543210", "minutes": 0},
-                       headers=h).status_code == 422
-    assert client.post("/admin/api/test/vendor-test", json={"vendor_code": "1", "mobile": "123"},
-                       headers=h).status_code == 422
+def test_a_vendor_trace_opens_with_the_real_settings(monkeypatch):
+    """The whole trace with default settings, so it cannot depend on a setting that no longer exists."""
+    master = [{"Vendor Code": "100019", "Vendor Name": "Bull", "PO No": "1", "PO Item No": "10", "Del.Sch Line": "1", "OD Days": "5"}]
+    monkeypatch.setattr(trace.store, "get_settings", lambda: {})
+    monkeypatch.setattr(trace.store, "vendor_rows", lambda title, code: [])
+    monkeypatch.setattr(trace, "source_records", lambda title: master if title == "Master" else [])
+    monkeypatch.setattr(trace.store, "PgStore", lambda: type("S", (), {"read_records": lambda self, title: []})())
+    monkeypatch.setattr(trace.service, "recent_auto_runs", lambda limit=10: [])
+    t = trace.vendor_trace("100019")
+    assert t["pending_lines"] == 1 and t["steps"][0]["state"] == "next"
+
+
+def test_a_vendor_in_several_purchasing_groups_counts_lines_per_group():
+    master = [
+        {"PO No": "1", "PO Item No": "10", "Vendor Code": "7", "OD Days": "5", "Purchasing Group": "256", "Buyer Mail ID": "ravi@bull.com"},
+        {"PO No": "1", "PO Item No": "20", "Vendor Code": "7", "OD Days": "9", "Purchasing Group": "256", "Buyer Mail ID": "ravi@bull.com"},
+        {"PO No": "2", "PO Item No": "10", "Vendor Code": "7", "OD Days": "3", "Purchasing Group": "210", "Buyer Mail ID": "#N/A"},
+    ]
+    g = trace.line_groups(trace.index_vendors(master)["7"])
+    assert g["by_pg"] == {"256": {"lines": 2, "max_od": 9, "pos": 1}, "210": {"lines": 1, "max_od": 3, "pos": 1}}
+    assert g["buyers"] == ["ravi"] and g["po_count"] == 2
+
+
+def test_cycle_day_and_restart():
+    start = NOW.date() - timedelta(days=2)
+    c = trace.cycle_info(start, None, 7, NOW.date())
+    assert c["cycle_day"] == 3 and c["restart_on"] is None  # not known before Scenario 4
+    assert trace.cycle_info(start, NOW.date(), 7, NOW.date())["restart_on"] == (NOW.date() + timedelta(days=7)).isoformat()
+    assert trace.cycle_info(None, None, 7, NOW.date())["cycle_day"] is None
+
+
+def test_history_before_a_restart_is_left_out():
+    rows = [{"Timestamp": "2026-11-02 09:00:00"}, {"Timestamp": "2026-11-02 11:00:00"}]
+    assert trace.since_restart(rows, "2026-11-02 10:00:00") == rows[1:] and trace.since_restart(rows, "") == rows
+
+
+def test_the_timeline_shows_only_the_current_cycle():
+    old = log(1, NOW, "FAILED")
+    rows = [old, {"Status": "CYCLE_RESET", "Escalation Level": "-"}, log(0, NOW)]
+    assert trace.current_cycle(rows) == [rows[2]] and trace.current_cycle([old]) == [old]
+
+
+def test_the_note_says_when_a_finished_vendor_starts_again():
+    steps = trace.journey(3, NOW, [], PERIOD, NOW)
+    note = trace.next_step_note(steps, 4, True, {"vendor_scope": "selected"}, None, NOW.date())
+    assert "09-Oct-2026" in note and "start again from Scenario 1" in note

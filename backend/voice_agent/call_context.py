@@ -2,7 +2,7 @@
 
 The data travels inside the call itself: a signed, compressed token on the flow URL (?ctx=...), which /flow
 passes on to /media. So the server that streams the audio does not have to be the one that placed the call
-(a local follow-up run can use the Render server for the audio). The signature (keyed on TELER_API_KEY,
+(a follow-up run can use another server for the audio). The signature (keyed on TELER_API_KEY,
 which both servers share) stops anyone from making the agent run a script of their own."""
 
 import base64
@@ -13,6 +13,7 @@ import json
 import time
 import zlib
 
+from backend.core.env import env_int
 from backend.voice_agent.config import TELER_API_KEY
 from backend.voice_agent.prompts import greeting, po_prompt
 
@@ -20,7 +21,7 @@ from backend.voice_agent.prompts import greeting, po_prompt
 VERSION = "v1"
 MAX_AGE_SECONDS = 60 * 60  # a call is answered within minutes
 MAX_TOKEN_CHARS = 4000
-MAX_LINES = 10  # keeps the flow URL short; the agent goes through the worst lines first
+MAX_LINES = env_int("CALL_MAX_PO_LINES", 10)  # keeps the flow URL short; the agent goes through the worst lines first
 LINE_FIELDS = ("po", "item", "desc", "due", "pending", "uom", "od")
 
 
@@ -37,9 +38,10 @@ def _sign(body: str) -> str:
     return _b64(hmac.new(key, body.encode(), hashlib.sha256).digest()[:16])
 
 
-def encode(vendor: str, name: str, code: str, lines: list[dict]) -> str:
-    """Token for one call. `lines`: dicts with LINE_FIELDS, worst first."""
-    data = {"v": vendor, "n": name, "c": code, "t": int(time.time()),
+def encode(vendor: str, name: str, code: str, lines: list[dict], key: str = "") -> str:
+    """Token for one call. `lines`: dicts with LINE_FIELDS, worst first. `key` names the call's row in
+    followup.call_results, where the transcript and what was understood from it are saved."""
+    data = {"v": vendor, "n": name, "c": code, "t": int(time.time()), "k": key,
             "l": [[str(l.get(f) or "") for f in LINE_FIELDS] for l in lines[:MAX_LINES]]}
     body = _b64(zlib.compress(json.dumps(data, separators=(",", ":")).encode(), 9))
     return f"{body}.{_sign(body)}"
@@ -67,7 +69,7 @@ def ticket_valid(value: str | None) -> bool:
 
 
 def decode(token: str | None) -> dict | None:
-    """{"vendor", "prompt", "greeting"} for a valid, fresh token, else None."""
+    """{"vendor", "prompt", "greeting", "code", "key"} for a valid, fresh token, else None."""
     if not token or len(token) > MAX_TOKEN_CHARS or "." not in token:
         return None
     body, sig = token.rsplit(".", 1)
@@ -80,4 +82,5 @@ def decode(token: str | None) -> dict | None:
     if time.time() - data.get("t", 0) > MAX_AGE_SECONDS:
         return None
     lines = [dict(zip(LINE_FIELDS, row)) for row in data["l"]]
-    return {"vendor": data["v"], "prompt": po_prompt(data["n"], data["c"], lines), "greeting": greeting(data["n"])}
+    return {"vendor": data["v"], "prompt": po_prompt(data["n"], data["c"], lines), "greeting": greeting(data["n"]),
+            "code": data["c"], "key": data.get("k", "")}
