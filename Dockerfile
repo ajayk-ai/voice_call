@@ -21,10 +21,10 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
-# Locked versions from uv.lock; the `sync` extra brings psycopg (admin/dashboard API and the sheet sync)
+# Locked versions from uv.lock (psycopg is a main dependency)
 COPY pyproject.toml uv.lock ./
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-dev --no-install-project --extra sync
+    uv sync --frozen --no-dev --no-install-project
 
 # App layout in the image (paths are fixed in backend/core/frontend.py, relative to /app):
 #   /app/main.py             FastAPI entry point (uvicorn main:app)
