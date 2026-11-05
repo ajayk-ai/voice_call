@@ -1,0 +1,306 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PO Voice Agent</title>
+<link rel="stylesheet" href="assets/ui.css">
+<style>
+  :root {
+    --bg: #f4f6f8; --card: #fff; --fg: #1d242b; --muted: #5d6874; --line: #dde2e7;
+    --accent: #2563eb; --accent-fg: #fff; --stop: #c2412d;
+    --me: #e6f0fa; --agent: #f1f3f5; --ok: #2f7d4f;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #14181c; --card: #1c2227; --fg: #e6eaee; --muted: #9aa5b0; --line: #2e363e;
+      --accent: #4a9be0; --accent-fg: #0d1216; --stop: #e0664f; --me: #1d3246; --agent: #252c33; --ok: #6cc893;
+      color-scheme: dark; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.5 var(--font-ui, system-ui); }
+  main { max-width: 720px; margin: 0 auto; padding: 32px 16px 48px; display: grid; gap: 16px; }
+  h1 { margin: 0; font-size: 1.5rem; }
+  .sub { color: var(--muted); margin: 0; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 16px; display: grid; gap: 12px; }
+  .controls { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+  button { font: 600 1rem/1 inherit; padding: 12px 20px; border: 0; border-radius: 8px; cursor: pointer; background: var(--accent); color: var(--accent-fg); }
+  button.stop { background: var(--stop); }
+  button:disabled { opacity: .5; cursor: default; }
+  button:focus-visible { outline: 3px solid var(--fg); outline-offset: 2px; }
+  #status { color: var(--muted); }
+  #status.live { color: var(--ok); font-weight: 600; }
+  .meter { flex: 1 1 120px; height: 8px; background: var(--line); border-radius: 4px; overflow: hidden; min-width: 80px; }
+  .meter i { display: block; height: 100%; width: 0; background: var(--ok); transition: width .08s; }
+  .tip { font-size: .88rem; color: var(--muted); margin: 0; }
+  #log { display: grid; gap: 8px; min-height: 220px; max-height: 55vh; overflow-y: auto; align-content: start; }
+  .msg { padding: 8px 12px; border-radius: 8px; max-width: 85%; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .msg b { display: block; font-size: .75rem; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+  .user { background: var(--me); justify-self: end; }
+  .assistant { background: var(--agent); justify-self: start; }
+  .sys { color: var(--muted); font-size: .85rem; text-align: center; }
+  .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); }
+  .tab { background: none; color: var(--muted); border-radius: 8px 8px 0 0; padding: 10px 16px; border-bottom: 3px solid transparent; }
+  .tab[aria-selected="true"] { color: var(--fg); border-bottom-color: var(--accent); }
+  .panel[hidden] { display: none; }
+  .panel { display: grid; gap: 16px; }
+  form { display: grid; gap: 12px; }
+  label { display: grid; gap: 4px; font-weight: 600; font-size: .9rem; }
+  input { font: inherit; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--fg); width: 100%; }
+  input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  #callResult { margin: 0; }
+  #callResult.ok { color: var(--ok); font-weight: 600; }
+  #callResult.err { color: var(--stop); font-weight: 600; }
+  .notice { margin: 0; padding: 8px 12px; border-radius: 8px; border: 1px solid var(--line); color: var(--stop); font-size: .9rem; }
+</style>
+</head>
+<body>
+<nav class="gnav" aria-label="Pages"><div class="gnav-in">
+    <a class="brand" href="./"><span class="mark" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 7l9-4 9 4-9 4-9-4z"/><path d="M3 7v10l9 4 9-4V7M12 11v10"/></svg></span><span class="word"><b>PO Agent</b><small>Supply chain follow-up</small></span></a>
+    <div class="links">
+      <a href="dashboard">Dashboard</a>
+      <a href="./?tab=phone" id="nav-phone">Normal call</a>
+      <a href="./?tab=browser" id="nav-browser">Voice agent</a>
+      <a href="admin">Follow-up admin</a>
+      <a href="docs" class="end">API docs</a>
+    </div>
+</div></nav>
+<main>
+  <div>
+    <h1>PO Voice Agent</h1>
+    <p class="sub">Bull Machines PO follow-up agent. It speaks English, Hindi and Tamil.</p>
+  </div>
+
+  <label>Access code
+    <input id="password" type="password" autocomplete="current-password" placeholder="Needed for both tabs">
+  </label>
+
+  <div class="tabs" role="tablist">
+    <button class="tab" role="tab" id="tab-phone" aria-controls="panel-phone" aria-selected="true">Normal call</button>
+    <button class="tab" role="tab" id="tab-browser" aria-controls="panel-browser" aria-selected="false">Voice agent</button>
+  </div>
+
+  <section class="panel" id="panel-phone" role="tabpanel" aria-labelledby="tab-phone">
+    <div class="card">
+      <p class="sub">The agent rings this phone number from your FreJun number and runs the PO follow-up call.</p>
+      <p class="notice" id="phoneOff" hidden>Phone calls are not configured on this server (GEMINI_API_KEY, TELER_API_KEY, FREJUN_PHONE_NUMBER).</p>
+      <form id="callForm">
+        <label>Phone number
+          <input id="to" type="tel" placeholder="+919876543210" autocomplete="tel" required>
+        </label>
+        <div class="controls"><button id="callBtn" type="submit">Call this number</button></div>
+        <p id="callResult" role="status"></p>
+      </form>
+      <p class="tip">On Render's free plan the server sleeps when idle. If the first call fails, wait a few seconds and try again.</p>
+    </div>
+  </section>
+
+  <section class="panel" id="panel-browser" role="tabpanel" aria-labelledby="tab-browser" hidden>
+  <p class="sub">Talk to the agent with your microphone. No phone call is placed. You play the vendor.</p>
+  <p class="notice" id="agentOff" hidden>The voice agent is not configured on this server (GEMINI_API_KEY).</p>
+  <div class="card">
+    <div class="controls">
+      <button id="start">Start test call</button>
+      <button id="stop" class="stop" disabled>End call</button>
+      <span id="status" role="status">Not connected</span>
+      <div class="meter" title="Your mic level"><i id="level"></i></div>
+    </div>
+    <p class="tip">Use headphones. Without them the agent hears itself through your speakers and keeps interrupting itself.</p>
+  </div>
+
+  <div class="card">
+    <div id="log" role="log" aria-label="Transcript" tabindex="0"><div class="sys">The transcript appears here.</div></div>
+  </div>
+  </section>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let ws, micCtx, micStream, playCtx, nextPlayTime = 0, playing = new Set();
+let current = { role: null, el: null };
+
+function setStatus(text, live) { $("status").textContent = text; $("status").className = live ? "live" : ""; }
+
+function addLine(role, text) {
+  const log = $("log");
+  if (log.firstElementChild?.classList.contains("sys") && log.children.length === 1) log.innerHTML = "";
+  if (current.role !== role || !current.el) {
+    const div = document.createElement("div");
+    div.className = "msg " + role;
+    div.innerHTML = "<b>" + (role === "user" ? "You (vendor)" : "Agent") + "</b><span></span>";
+    log.appendChild(div);
+    current = { role, el: div.querySelector("span") };
+  }
+  current.el.textContent += text;
+  log.scrollTop = log.scrollHeight;
+}
+
+function sysLine(text) {
+  const div = document.createElement("div");
+  div.className = "sys"; div.textContent = text;
+  $("log").appendChild(div); current = { role: null, el: null };
+}
+
+// Agent audio: 24 kHz PCM16 chunks, played back to back
+function playChunk(buf) {
+  const pcm = new Int16Array(buf);
+  const audio = playCtx.createBuffer(1, pcm.length, 24000);
+  const ch = audio.getChannelData(0);
+  for (let i = 0; i < pcm.length; i++) ch[i] = pcm[i] / 32768;
+  const src = playCtx.createBufferSource();
+  src.buffer = audio; src.connect(playCtx.destination);
+  const t = Math.max(playCtx.currentTime + 0.05, nextPlayTime);
+  src.start(t); nextPlayTime = t + audio.duration;
+  playing.add(src);
+  src.onended = () => playing.delete(src);
+}
+
+function stopPlayback() {
+  playing.forEach((s) => { try { s.stop(); } catch (e) {} });
+  playing.clear(); nextPlayTime = 0;
+}
+
+// Mic capture: 16 kHz mono, sent as PCM16 every 40 ms (small frames = the agent hears the end of speech sooner)
+const workletCode = `
+class Mic extends AudioWorkletProcessor {
+  // Writes straight into a 640-sample PCM16 frame: no array growth or copies in the audio thread (avoids glitches)
+  constructor() { super(); this.pcm = new Int16Array(640); this.n = 0; this.peak = 0; }
+  process(inputs) {
+    const ch = inputs[0][0];
+    if (ch) {
+      for (let i = 0; i < ch.length; i++) {
+        const s = Math.max(-1, Math.min(1, ch[i]));
+        this.pcm[this.n++] = s * 32767; if (Math.abs(s) > this.peak) this.peak = Math.abs(s);
+        if (this.n === 640) {
+          this.port.postMessage({ pcm: this.pcm.buffer, peak: this.peak }, [this.pcm.buffer]);
+          this.pcm = new Int16Array(640); this.n = 0; this.peak = 0;
+        }
+      }
+    }
+    return true;
+  }
+}
+registerProcessor("mic", Mic);`;
+
+async function start() {
+  $("start").disabled = true;
+  setStatus("Starting microphone…");
+  try {
+    micStream = await navigator.mediaDevices.getUserMedia({
+      audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+    });
+  } catch (e) {
+    setStatus("Microphone blocked. Allow mic access in the browser and try again.");
+    $("start").disabled = false; return;
+  }
+  let node;
+  try {
+    micCtx = new AudioContext({ sampleRate: 16000 });
+    playCtx = new AudioContext({ sampleRate: 24000 });
+    const url = URL.createObjectURL(new Blob([workletCode], { type: "application/javascript" }));
+    try { await micCtx.audioWorklet.addModule(url); } finally { URL.revokeObjectURL(url); }
+    node = new AudioWorkletNode(micCtx, "mic");
+    micCtx.createMediaStreamSource(micStream).connect(node);
+  } catch (e) {
+    // e.g. a browser that cannot resample the mic to 16 kHz: release the mic instead of leaving it open
+    cleanup();
+    setStatus("This browser could not start the audio (" + (e.message || e.name) + "). Try Chrome or Edge.");
+    return;
+  }
+
+  setStatus("Connecting to agent…");
+  $("stop").disabled = false;  // a slow or hung connection can be cancelled
+  ws = new WebSocket(new URL("test-ws", location.href).href.replace(/^http/, "ws"));  // relative: works under a base path
+  ws.binaryType = "arraybuffer";
+  ws.onopen = () => {
+    ws.send(JSON.stringify({ type: "auth", code: $("password").value }));
+    node.port.onmessage = (e) => {
+      $("level").style.width = Math.min(100, e.data.peak * 140) + "%";
+      if (ws.readyState === 1) ws.send(e.data.pcm);
+    };
+  };
+  ws.onmessage = (e) => {
+    if (typeof e.data !== "string") { playChunk(e.data); return; }
+    const m = JSON.parse(e.data);
+    if (m.type === "ready") { setStatus("Live: speak now", true); sysLine("Call connected. The agent will greet you."); $("stop").disabled = false; $("stop").focus(); }
+    else if (m.type === "transcript") addLine(m.role, m.text);
+    else if (m.type === "turn_complete") current = { role: null, el: null };
+    else if (m.type === "clear") stopPlayback();
+    else if (m.type === "error") { sysLine("Error: " + m.text); }
+  };
+  ws.onclose = (e) => {
+    cleanup();
+    if (e.code === 4401) { setStatus("Wrong access code. Enter it above and try again."); return; }
+    setStatus("Call ended"); sysLine("Call ended.");
+  };
+  ws.onerror = () => setStatus("Could not reach the agent server.");
+}
+
+function cleanup() {
+  stopPlayback();
+  micStream?.getTracks().forEach((t) => t.stop());
+  micCtx?.close(); playCtx?.close();
+  micCtx = playCtx = micStream = null;
+  $("level").style.width = "0";
+  const hadFocus = document.activeElement === $("stop");
+  $("start").disabled = false; $("stop").disabled = true;
+  if (hadFocus) $("start").focus();  // a disabled button drops keyboard focus to the page
+}
+
+$("start").onclick = start;
+$("stop").onclick = () => { if (ws) ws.close(); else cleanup(); };
+
+// Tabs (?tab=phone / ?tab=browser from the top links, /test opens the voice agent)
+function showTab(name) {
+  for (const t of ["phone", "browser"]) {
+    $("tab-" + t).setAttribute("aria-selected", t === name);
+    $("panel-" + t).hidden = t !== name;
+    if (t === name) $("nav-" + t).setAttribute("aria-current", "page"); else $("nav-" + t).removeAttribute("aria-current");
+  }
+  try { localStorage.setItem("tab", name); } catch (e) {}
+}
+$("tab-phone").onclick = () => showTab("phone");
+$("tab-browser").onclick = () => showTab("browser");
+const wantTab = new URLSearchParams(location.search).get("tab");
+if (location.pathname.endsWith("/test")) showTab("browser");
+else if (wantTab === "phone" || wantTab === "browser") showTab(wantTab);
+else { let t = "phone"; try { t = localStorage.getItem("tab") || t; } catch (e) {} showTab(t); }
+
+// The access code is kept for this browser tab, so the admin page can use it too
+try { $("password").value = sessionStorage.getItem("access_code") || ""; } catch (e) {}
+$("password").addEventListener("input", () => { try { sessionStorage.setItem("access_code", $("password").value); } catch (e) {} });
+
+// Explain features the server has switched off
+fetch("api/status").then((r) => r.json()).then((st) => {
+  $("phoneOff").hidden = st.phone_calls; $("callBtn").disabled = !st.phone_calls;
+  $("agentOff").hidden = st.voice_agent; $("start").disabled = !st.voice_agent;
+  if (!st.access_code_required) $("password").placeholder = "Not required on this server";
+}).catch(() => {});
+
+// Normal call: ask the server to have the agent ring a phone
+try { $("to").value = localStorage.getItem("to") || ""; } catch (e) {}
+$("callForm").onsubmit = async (e) => {
+  e.preventDefault();
+  const result = $("callResult");
+  $("callBtn").disabled = true;
+  result.className = ""; result.textContent = "Placing call…";
+  try {
+    const res = await fetch("api/call", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ to: $("to").value, password: $("password").value }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok) {
+      result.className = "ok"; result.textContent = "Calling " + data.to + ". The phone should ring shortly.";
+      try { localStorage.setItem("to", data.to); } catch (e) {}
+    } else {
+      result.className = "err"; result.textContent = data.error || "Call failed (" + res.status + ").";
+    }
+  } catch (err) {
+    result.className = "err"; result.textContent = "Could not reach the server.";
+  }
+  $("callBtn").disabled = false;
+};
+</script>
+</body>
+</html>

@@ -1,12 +1,13 @@
 """FastAPI application: the voice agent, the PO follow-up and their web pages in one server."""
 
 import logging
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
@@ -69,4 +70,22 @@ def create_app() -> FastAPI:
     return app
 
 
+def mount_under(base_path: str, inner: FastAPI) -> FastAPI:
+    """Serve `inner` under base_path (e.g. /voicecall); / redirects there. The pages use relative URLs."""
+    # A mounted app's lifespan is not run by Starlette, so the outer app runs it (admin scheduler etc.)
+    outer = FastAPI(docs_url=None, redoc_url=None, openapi_url=None,
+                    lifespan=lambda _: inner.router.lifespan_context(inner))
+
+    @outer.get("/", include_in_schema=False)
+    async def to_base_path():
+        return RedirectResponse(f"{base_path}/")
+
+    outer.mount(base_path, inner)  # /voicecall redirects to /voicecall/ (redirect_slashes)
+    return outer
+
+
+# BASE_PATH: URL prefix the whole app is served under, e.g. /voicecall; empty = site root
+_base = (os.getenv("BASE_PATH") or "").strip().strip("/")
 app = create_app()
+if _base:
+    app = mount_under(f"/{_base}", app)

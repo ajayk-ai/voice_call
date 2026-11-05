@@ -18,3 +18,6 @@ wheels/
 
 # Google service account key
 service.json
+
+# Extra CA certs for local builds behind an SSL-inspecting proxy (machine-specific)
+certs/*.crt

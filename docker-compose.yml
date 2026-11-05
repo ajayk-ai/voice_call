@@ -1,33 +1,87 @@
-# Deploy on this server:  docker compose up -d --build
-#
-# Host networking: the containers reach the host PostgreSQL at localhost (PO_DB_HOST=localhost), so PostgreSQL
-# stays closed to the network. The app listens on port 8081; users reach it through host nginx at http://ai.bullmachine.in/scm/
-# (scripts/nginx-ai.bullmachine.in.conf).
+# docker compose up -d --build
+#   web:  http://127.0.0.1:8001/scm/  (BASE_PATH; voice agent, admin, dashboard; loopback only)
+#         Public: http(s)://ai.bullmachine.in/scm/ through the central nginx in the costing project,
+#         which reaches this service as "voice-web" on the shared external network "ai-proxy".
+#         Create that network once per server: docker network create ai-proxy
+#   sync: Google Sheet -> PostgreSQL mirror (python -m backend.po_sync)
+#   db:   PostgreSQL 17 (internal only)
+# Secrets come from .env (copy .env.example); service.json is mounted read-only.
+# PO_DB_* are overridden below so the containers reach the db service, whatever .env says.
+
 x-app: &app
-  image: po-agent:latest
-  network_mode: host
-  # Same uid as the owner of .env / service.json (mode 600) so the key file stays unreadable to other users
-  user: "${APP_UID:-1001}:${APP_GID:-1001}"
+  image: voice-call:latest
   env_file: .env
-  restart: unless-stopped
+  environment:
+    # URL prefix: http://127.0.0.1:8001/scm/ (/ redirects there).
+    # Must equal SCM_PATH of the central nginx (costing project, default /scm)
+    BASE_PATH: ${BASE_PATH:-/scm}
+    GOOGLE_SERVICE_ACCOUNT_FILE: /run/secrets/service.json
+    PO_DB_HOST: db
+    PO_DB_PORT: "5432"
+    PO_DB_USER: postgres
+    PO_DB_PASSWORD: ${PO_DB_PASSWORD:-postgres}
+    PO_DB_NAME: ${PO_DB_NAME:-pending_po}
   volumes:
-    # Google service account key (GOOGLE_SERVICE_ACCOUNT_FILE=service.json in .env)
-    - ./service.json:/app/service.json:ro
+    - ./service.json:/run/secrets/service.json:ro
+  depends_on:
+    db:
+      condition: service_healthy
+  restart: unless-stopped
 
 services:
-  app:
+  web:
     <<: *app
-    build: .
-    container_name: po-agent
-    healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8081/health', timeout=3)"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 20s
+    # Image: Python deps + main.py, backend/ and frontend/ (static HTML, no build step) in /app
+    build:
+      context: .
+      dockerfile: Dockerfile
+    working_dir: /app
+    # FastAPI: API, voice agent websockets and the frontend pages
+    command: ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port $${PORT:-8000}"]
+    ports:
+      # Loopback only, for checks on the server (costing uses 8000); the central nginx is the public entry point
+      - "127.0.0.1:8001:8000"
+    networks:
+      default:
+      ai-proxy:
+        # Name the central nginx (costing project) proxies DOMAIN/scm/ to
+        aliases:
+          - voice-web
 
-  # Live sheet -> PostgreSQL mirror (optional: production runs also sync just before they start)
+  # Same image as web (built once there)
   sync:
     <<: *app
-    container_name: po-sync
+    working_dir: /app
+    # Google Sheet -> PostgreSQL mirror (no web server)
     command: ["python", "-m", "backend.po_sync"]
+    healthcheck:
+      disable: true
+    depends_on:
+      db:
+        condition: service_healthy
+      web:
+        condition: service_started
+
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${PO_DB_PASSWORD:-postgres}
+      POSTGRES_DB: ${PO_DB_NAME:-pending_po}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./docker/initdb:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+
+networks:
+  # Shared with the costing project's central nginx; created once with "docker network create ai-proxy"
+  ai-proxy:
+    external: true
