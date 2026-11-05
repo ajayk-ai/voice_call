@@ -1,6 +1,6 @@
 # Deploy with Docker
 
-Runs four containers: `web` (voice agent, `/admin`, `/dashboard`), `sync` (Google Sheet -> PostgreSQL mirror), `db` (PostgreSQL 17) and `nginx` (host port 8082, serves `VOICE_DOMAIN`: `scm.localhost` locally, `scm.ai.bullmachine.in` on the server via `.env`). Everything is under the base path `/voicecall/`. The costing project's nginx on port 80 forwards that name to port 8082. Full local and server steps are in [readme.md](readme.md) under "Option C – Docker with nginx".
+Runs three containers: `web` (voice agent, `/admin`, `/dashboard`), `sync` (Google Sheet -> PostgreSQL mirror) and `db` (PostgreSQL 17). Everything is under the base path `/scm/`. There is no nginx in this project: the central nginx in the costing project (`~/costing`, port 80) serves `ai.bullmachine.in/scm/` and reaches `web` as `voice-web` on the shared external Docker network `ai-proxy`. Both projects are started separately; create the network once per machine with `docker network create ai-proxy`. Full local and server steps are in [readme.md](readme.md) under "Option C – Docker with nginx".
 
 ## Prerequisites
 
@@ -37,11 +37,11 @@ Check that everything is up:
 
 ```bash
 docker compose ps
-curl http://127.0.0.1:8001/voicecall/health                          # app directly (loopback)
-curl http://localhost:8082/voicecall/health                          # through this nginx
+curl http://127.0.0.1:8001/scm/health                                # app directly (loopback)
+curl http://localhost/scm/health                                     # through the central nginx (costing project)
 ```
 
-The app is served under `BASE_PATH` (default `/voicecall`). Open http://127.0.0.1:8001/voicecall/, http://localhost:8082/voicecall/ or http://scm.localhost/voicecall/ (through the costing nginx on port 80). `/` redirects to `/voicecall/`.
+The app is served under `BASE_PATH` (default `/scm`; must equal `SCM_PATH` of the central nginx). Open http://127.0.0.1:8001/scm/ or http://localhost/scm/ (through the central nginx). `/` redirects to `/scm/`.
 
 ## 3. Common commands
 
@@ -62,11 +62,11 @@ docker compose exec web python -m backend.po_followup --help
 
 ## 4. Public URL for calls
 
-FreJun must reach the app over HTTPS. On the server that is `https://scm.ai.bullmachine.in` (TLS on the costing project's port-80/443 nginx). For testing, use a tunnel:
+FreJun must reach the app over HTTPS. On the server that is `https://ai.bullmachine.in/scm` (TLS on the costing project's central nginx), so set `PUBLIC_URL=https://ai.bullmachine.in/scm`. For testing, use a tunnel to the app port and set `PUBLIC_URL` to the tunnel URL plus `/scm`:
 
 ```bash
-cloudflared tunnel --url http://localhost:8082
-# or: ngrok http 8082
+cloudflared tunnel --url http://localhost:8001
+# or: ngrok http 8001
 ```
 
 Put the resulting URL in `PUBLIC_URL` in `.env`, then `docker compose up -d` to apply it.

@@ -139,10 +139,10 @@ CI (`.github/workflows/ci.yml`) runs both on every push and pull request.
 One Ubuntu VM runs both projects. This project's containers sit behind the costing project's nginx on port 80:
 
 ```
-scm.ai.bullmachine.in/voicecall/ --> costing nginx (:80) --> this nginx (:8082) --> web (127.0.0.1:8001)
+ai.bullmachine.in/scm/ --> central nginx (costing project, :80) --> web as "voice-web" on network ai-proxy (127.0.0.1:8001)
 ```
 
-Costing must be running because its nginx owns port 80. Deploy it first if you have not already (costing README, "Deploy on an Ubuntu server (Docker)"). Local and architecture detail: [Option C](#option-c--docker-with-nginx-local-and-shared-server); troubleshooting: [DEPLOY.md](DEPLOY.md).
+This project has no nginx of its own; the costing project's nginx owns port 80. Run `docker network create ai-proxy` once before the first `docker compose up` of either project. Deploy it first if you have not already (costing README, "Deploy on an Ubuntu server (Docker)"). Local and architecture detail: [Option C](#option-c--docker-with-nginx-local-and-shared-server); troubleshooting: [DEPLOY.md](DEPLOY.md).
 
 ### 1. Prepare Ubuntu and install Docker
 
@@ -169,9 +169,9 @@ docker compose version
 
 ### 2. DNS and firewall
 
-- An A record for `scm.ai.bullmachine.in` (and `ai.bullmachine.in`, or a wildcard `*.ai.bullmachine.in`) pointing at the VM's public IP.
+- An A record for `ai.bullmachine.in` pointing at the VM's public IP (shared with costing).
 - Inbound **80** open in the cloud security group or NSG (443 too once HTTPS is added); 22 limited to known IPs.
-- Keep 8001, 8082 and 5432 closed to the internet; only nginx is public.
+- Keep 8001 and 5432 closed to the internet; only nginx is public.
 
 On the VM, if using `ufw`:
 
@@ -200,16 +200,15 @@ DASHBOARD_PASSWORD=<dashboard code>
 GEMINI_API_KEY=<google ai studio key>
 TELER_API_KEY=<frejun key>
 FREJUN_PHONE_NUMBER=+91...
-PUBLIC_URL=https://scm.ai.bullmachine.in/voicecall
+PUBLIC_URL=https://ai.bullmachine.in/scm
 GOOGLE_DELEGATED_USER=<workspace user>
 PO_SHEET_ID=<spreadsheet id>
 PO_DB_PASSWORD=<strong database password>
-VOICE_DOMAIN=scm.ai.bullmachine.in
-# BASE_PATH=/voicecall        # default; change only for another path
+# BASE_PATH=/scm              # default; must equal SCM_PATH in costing
 ```
 
 - Copy the Google service account key to the project root as `service.json` (`scp` from your PC); it is mounted read-only into the containers.
-- `PUBLIC_URL` must include `/voicecall` and be HTTPS for FreJun calls. HTTPS is terminated on the costing nginx.
+- `PUBLIC_URL` must include `/scm` and be HTTPS for FreJun calls. HTTPS is terminated on the costing nginx.
 - `PO_DB_PASSWORD` is fixed when the `pgdata` volume is first created. Changing it later needs the volume recreated, which deletes the database.
 - Do not set `PO_DB_HOST`, `PO_DB_USER` or `GOOGLE_SERVICE_ACCOUNT_FILE`; `docker-compose.yml` overrides them to the `db` container and the mounted `service.json`.
 - Lock the secrets down: `chmod 600 .env service.json`.
@@ -234,12 +233,11 @@ Follow the sync: `docker compose logs -f sync`.
 ### 6. Verify
 
 ```bash
-curl http://127.0.0.1:8001/voicecall/health                                 # the app
-curl -H "Host: scm.ai.bullmachine.in" http://localhost:8082/voicecall/health  # this nginx
-curl -H "Host: scm.ai.bullmachine.in" http://localhost/voicecall/health       # through the costing edge on :80
+curl http://127.0.0.1:8001/scm/health                                   # the app
+curl -H "Host: ai.bullmachine.in" http://localhost/scm/health          # through the central nginx on :80
 ```
 
-Then open `http://scm.ai.bullmachine.in/voicecall/admin`. `ADMIN_PASSWORD` and `DASHBOARD_PASSWORD` must be set, because every request through nginx counts as remote.
+Then open `http://ai.bullmachine.in/scm/admin`. `ADMIN_PASSWORD` and `DASHBOARD_PASSWORD` must be set, because every request through nginx counts as remote.
 
 ### 7. Update, logs, stop, backup
 
@@ -390,22 +388,23 @@ Cloudflare Tunnel) or move to Option A.
 
 ### Option C – Docker with nginx (local and shared server)
 
-This project and the costing project each have their own `docker-compose.yml` and their own nginx. Each app runs under its own **base path**: this one under `/voicecall/`, costing under `/costing/`. `/` redirects to the base path. Domains and base paths come from `.env`, so the same files work on your PC and on the server:
+This project and the costing project each have their own `docker-compose.yml` and are started separately. The only nginx is in the costing project. Both apps share one domain, each under its own **base path**: this one under `/scm/`, costing under `/costing/`. `/` redirects to the base path. The same files work on your PC and on the server:
 
 ```
-:80 --> costing nginx --+-- COSTING_DOMAIN/costing/   --> costing app
-                        +-- VOICE_DOMAIN/voicecall/   --> this nginx (:8082) --> web (127.0.0.1:8001/voicecall/)
+:80 --> central nginx (costing project) --+-- DOMAIN/costing/ --> costing app
+                                          +-- DOMAIN/scm/     --> web as "voice-web" (127.0.0.1:8001/scm/)
+        shared external Docker network "ai-proxy" (create once: docker network create ai-proxy)
 ```
 
 | | voice_call (this project) | costing |
 |---|---|---|
-| App port directly | http://127.0.0.1:8001/voicecall/ | http://127.0.0.1:8000/costing/ |
-| Through nginx, local (default) | http://scm.localhost/voicecall/ (also http://localhost:8082/voicecall/) | http://localhost/costing/ |
-| Through nginx, server | http://scm.ai.bullmachine.in/voicecall/ | http://ai.bullmachine.in/costing/ |
+| App port directly | http://127.0.0.1:8001/scm/ | http://127.0.0.1:8000/costing/ |
+| Through nginx, local (default) | http://localhost/scm/ | http://localhost/costing/ |
+| Through nginx, server | http://ai.bullmachine.in/scm/ | http://ai.bullmachine.in/costing/ |
 
 Settings in `.env`:
-- `BASE_PATH`: default `/voicecall`; leave it unset unless you want another path.
-- `VOICE_DOMAIN`: default `scm.localhost`; on the server, `scm.ai.bullmachine.in`, with the same value in costing's `.env`.
+- `BASE_PATH`: default `/scm`; leave it unset unless you want another path (then set `SCM_PATH` in costing's `.env` to match).
+- The domain is set once, as `DOMAIN` in costing's `.env`.
 
 `docker compose up` here starts:
 
@@ -414,25 +413,24 @@ Settings in `.env`:
 | `web` | Built from the [Dockerfile](Dockerfile): Python deps installed with uv into `/opt/venv`, plus `main.py`, `backend/` and `frontend/` in `/app`. Started with `uvicorn main:app` on port 8000 under `BASE_PATH`. `frontend/` is plain HTML/CSS with no build step; the pages use relative URLs, so they work under any base path. |
 | `sync` | Same image; runs `python -m backend.po_sync` (sheet → PostgreSQL). |
 | `db` | PostgreSQL 17. |
-| `nginx` | Host port 8082; config is [deploy/nginx.conf.template](deploy/nginx.conf.template). Passes the `/media` and `/test-ws` WebSockets. |
 
-Port 80 belongs to the costing project's nginx, which forwards `VOICE_DOMAIN` here, so **run costing as well** (its README, "Docker (local and server)"). Without it, use http://localhost:8082/voicecall/ or http://127.0.0.1:8001/voicecall/.
+`web` also joins the external network `ai-proxy` with the alias `voice-web`. Port 80 belongs to the costing project's nginx, which forwards `/scm/` (including the `/media` and `/test-ws` WebSockets) here, so **run costing as well** for public access (its README, "Docker (local and server)"). Without it, use http://127.0.0.1:8001/scm/.
 
 Running outside Docker (`uvicorn main:app`, Render) with `BASE_PATH` unset still serves the app at `/`, as before.
 
 **Run locally (Docker Desktop)**
-1. Start Docker Desktop. `.env` and `service.json` are in the project root as for development. Leave `VOICE_DOMAIN`/`BASE_PATH` unset.
+1. Start Docker Desktop. `.env` and `service.json` are in the project root as for development. Leave `BASE_PATH` unset. Run `docker network create ai-proxy` once.
 2. Behind the office SSL-inspection firewall (Fortinet), put the firewall's CA certificate in `certs/` as a `.crt` file (PEM), or builds fail with `CERTIFICATE_VERIFY_FAILED`. Export it from Windows (`certmgr.msc` → Trusted Root → the Fortinet `FG…` certificate → Export, Base-64). `certs/*.crt` is git-ignored. On the server, leave `certs/` empty.
-3. `docker compose up -d --build`, then open http://127.0.0.1:8001/voicecall/, http://localhost:8082/voicecall/, or http://scm.localhost/voicecall/ (with costing running).
+3. `docker compose up -d --build`, then open http://127.0.0.1:8001/scm/, or http://localhost/scm/ (with costing running).
 4. Known office-network limit: Python 3.14 rejects the Fortinet CA ("Basic Constraints of CA cert not marked critical"), so the sheet sync and Google/Gemini calls fail on the office network. The pages still load. This does not happen on the server or on a network without SSL inspection.
 
 **Server deployment**: see [Ubuntu server deployment (Docker)](#ubuntu-server-deployment-docker) above for the full step-by-step setup (Docker install, DNS/firewall, `.env`, `service.json`, build, data, verify, updates and backups).
 
 **Changing the domain or base path later**: no file edits are needed.
-- **Domain:** set `VOICE_DOMAIN` (and `PUBLIC_URL`) in `.env` here and `VOICE_DOMAIN` in costing's `.env`. Then run `docker compose up -d` here and `docker compose up -d nginx` in costing, and update DNS.
-- **Base path:** set `BASE_PATH` (and the path part of `PUBLIC_URL`) in `.env`, then run `docker compose up -d`.
+- **Domain:** set `DOMAIN` in costing's `.env` and `PUBLIC_URL` here. Then run `docker compose up -d nginx` in costing and `docker compose up -d` here, and update DNS.
+- **Base path:** set `BASE_PATH` (and the path part of `PUBLIC_URL`) in `.env` here and `SCM_PATH` in costing's `.env`, then run `docker compose up -d` in both.
 
-The UltraMsg webhook URL also includes the base path: `https://<host>/voicecall/webhooks/ultramsg?secret=...`.
+The UltraMsg webhook URL also includes the base path: `https://ai.bullmachine.in/scm/webhooks/ultramsg?secret=...`.
 
 FreJun calls need `PUBLIC_URL` on **HTTPS**, so add a TLS certificate to the costing nginx (port 443) before going live with Scenario 3 calls.
 
